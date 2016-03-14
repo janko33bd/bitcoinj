@@ -20,9 +20,9 @@ package org.bitcoinj.kits;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
 import com.subgraph.orchid.*;
-import org.bitcoinj.core.listeners.*;
 import org.bitcoinj.core.*;
 import org.bitcoinj.net.discovery.*;
+import org.bitcoinj.params.*;
 import org.bitcoinj.protocols.channels.*;
 import org.bitcoinj.store.*;
 import org.bitcoinj.wallet.*;
@@ -74,7 +74,7 @@ public class WalletAppKit extends AbstractIdleService {
 
     protected boolean useAutoSave = true;
     protected PeerAddress[] peerAddresses;
-    protected DownloadProgressTracker downloadListener;
+    protected PeerEventListener downloadListener;
     protected boolean autoStop = true;
     protected InputStream checkpoints;
     protected boolean blockingStartup = true;
@@ -101,6 +101,11 @@ public class WalletAppKit extends AbstractIdleService {
         this.params = checkNotNull(context.getParams());
         this.directory = checkNotNull(directory);
         this.filePrefix = checkNotNull(filePrefix);
+        if (!Utils.isAndroidRuntime()) {
+            InputStream stream = WalletAppKit.class.getResourceAsStream("/" + params.getId() + ".checkpoints");
+            if (stream != null)
+                setCheckpoints(stream);
+        }
     }
 
     /** Will only connect to the given addresses. Cannot be called after startup. */
@@ -114,7 +119,7 @@ public class WalletAppKit extends AbstractIdleService {
     public WalletAppKit connectToLocalHost() {
         try {
             final InetAddress localHost = InetAddress.getLocalHost();
-            return setPeerNodes(new PeerAddress(params, localHost, params.getPort()));
+            return setPeerNodes(new PeerAddress(localHost, params.getPort()));
         } catch (UnknownHostException e) {
             // Borked machine with no loopback adapter configured properly.
             throw new RuntimeException(e);
@@ -133,7 +138,7 @@ public class WalletAppKit extends AbstractIdleService {
      * {@link org.bitcoinj.core.DownloadProgressTracker} is a good choice. This has no effect unless setBlockingStartup(false) has been called
      * too, due to some missing implementation code.
      */
-    public WalletAppKit setDownloadListener(DownloadProgressTracker listener) {
+    public WalletAppKit setDownloadListener(PeerEventListener listener) {
         this.downloadListener = listener;
         return this;
     }
@@ -157,7 +162,7 @@ public class WalletAppKit extends AbstractIdleService {
 
     /**
      * If true (the default) then the startup of this service won't be considered complete until the network has been
-     * brought up, peer connections established and the block chain synchronised. Therefore {@link #awaitRunning()} can
+     * brought up, peer connections established and the block chain synchronised. Therefore {@link #startAndWait()} can
      * potentially take a very long time. If false, then startup is considered complete once the network activity
      * begins and peer connections/block chain sync will continue in the background.
      */
@@ -275,10 +280,6 @@ public class WalletAppKit extends AbstractIdleService {
             // Initiate Bitcoin network objects (block store, blockchain and peer group)
             vStore = provideBlockStore(chainFile);
             if (!chainFileExists || restoreFromSeed != null) {
-                if (checkpoints == null && !Utils.isAndroidRuntime()) {
-                    checkpoints = CheckpointManager.openStream(params);
-                }
-
                 if (checkpoints != null) {
                     // Initialize the chain file with a checkpoint to speed up first-run sync.
                     long time;
@@ -339,7 +340,7 @@ public class WalletAppKit extends AbstractIdleService {
                     @Override
                     public void onSuccess(@Nullable Object result) {
                         completeExtensionInitiations(vPeerGroup);
-                        final DownloadProgressTracker l = downloadListener == null ? new DownloadProgressTracker() : downloadListener;
+                        final PeerEventListener l = downloadListener == null ? new DownloadProgressTracker() : downloadListener;
                         vPeerGroup.startBlockChainDownload(l);
                     }
 

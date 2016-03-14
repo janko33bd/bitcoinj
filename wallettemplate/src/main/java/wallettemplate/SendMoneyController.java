@@ -16,8 +16,6 @@ import wallettemplate.utils.WTUtils;
 import static com.google.common.base.Preconditions.checkState;
 import static wallettemplate.utils.GuiUtils.*;
 
-import javax.annotation.Nullable;
-
 public class SendMoneyController {
     public Button sendBtn;
     public Button cancelBtn;
@@ -49,7 +47,7 @@ public class SendMoneyController {
         // Address exception cannot happen as we validated it beforehand.
         try {
             Coin amount = Coin.parseCoin(amountEdit.getText());
-            Address destination = Address.fromBase58(Main.params, address.getText());
+            Address destination = new Address(Main.params, address.getText());
             Wallet.SendRequest req;
             if (amount.equals(Main.bitcoin.wallet().getBalance()))
                 req = Wallet.SendRequest.emptyWallet(destination);
@@ -59,7 +57,7 @@ public class SendMoneyController {
             sendResult = Main.bitcoin.wallet().sendCoins(req);
             Futures.addCallback(sendResult.broadcastComplete, new FutureCallback<Transaction>() {
                 @Override
-                public void onSuccess(@Nullable Transaction result) {
+                public void onSuccess(Transaction result) {
                     checkGuiThread();
                     overlayUI.done();
                 }
@@ -85,6 +83,9 @@ public class SendMoneyController {
             overlayUI.done();
         } catch (ECKey.KeyIsEncryptedException e) {
             askForPasswordAndRetry();
+        } catch (AddressFormatException e) {
+            // Cannot happen because we already validated it when the text field changed.
+            throw new RuntimeException(e);
         }
     }
 

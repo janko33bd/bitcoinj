@@ -1,6 +1,5 @@
 /*
  * Copyright 2011 Google Inc.
- * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,9 +32,7 @@ import java.util.Set;
  * that software upgrades could be distributed independently of a hard-coded website, in order to allow everything to
  * be purely peer-to-peer. You don't have to use this of course, and indeed it often makes more sense not to.<p>
  *     
- * <p>Before doing anything with an alert, you should check {@link AlertMessage#isSignatureValid()}.</p>
- * 
- * <p>Instances of this class are not safe for use by multiple threads.</p>
+ * Before doing anything with an alert, you should check {@link AlertMessage#isSignatureValid()}.
  */
 public class AlertMessage extends Message {
     private byte[] content;
@@ -64,7 +61,7 @@ public class AlertMessage extends Message {
     }
 
     @Override
-    protected void parse() throws ProtocolException {
+    void parse() throws ProtocolException {
         // Alerts are formatted in two levels. The top level contains two byte arrays: a signature, and a serialized
         // data structure containing the actual alert data.
         int startPos = cursor;
@@ -116,6 +113,11 @@ public class AlertMessage extends Message {
      */
     public boolean isSignatureValid() {
         return ECKey.verify(Sha256Hash.hashTwice(content), signature, params.getAlertSigningKey());
+    }
+
+    @Override
+    protected void parseLite() throws ProtocolException {
+        // Do nothing, lazy parsing isn't useful for alerts.
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -171,8 +173,8 @@ public class AlertMessage extends Message {
     }
 
     /**
-     * The inclusive lower bound on software versions that are considered for the purposes of this alert. Bitcoin Core
-     * compares this against a protocol version field, but as long as the subVer field is used to restrict it your
+     * The inclusive lower bound on software versions that are considered for the purposes of this alert. The Satoshi
+     * client compares this against a protocol version field, but as long as the subVer field is used to restrict it your
      * alerts could use any version numbers.
      * @return uint32
      */
@@ -185,8 +187,8 @@ public class AlertMessage extends Message {
     }
 
     /**
-     * The inclusive upper bound on software versions considered for the purposes of this alert. Bitcoin Core
-     * compares this against a protocol version field, but as long as the subVer field is used to restrict it your
+     * The inclusive upper bound on software versions considered for the purposes of this alert. The Satoshi
+     * client compares this against a protocol version field, but as long as the subVer field is used to restrict it your
      * alerts could use any version numbers.
      */
     public long getMaxVer() {
@@ -222,7 +224,7 @@ public class AlertMessage extends Message {
     }
 
     /**
-     * A string that is intended to display in the status bar of Bitcoin Core's GUI client. It contains the user-visible
+     * A string that is intended to display in the status bar of the official GUI client. It contains the user-visible
      * message. English only.
      */
     public String getStatusBar() {

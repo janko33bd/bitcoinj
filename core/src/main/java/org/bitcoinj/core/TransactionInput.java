@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright 2011 Google Inc.
  * Copyright 2014 Andreas Schildbach
  *
@@ -23,11 +23,12 @@ import org.bitcoinj.wallet.KeyBag;
 import org.bitcoinj.wallet.RedeemData;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Map;
@@ -36,17 +37,16 @@ import static com.google.common.base.Preconditions.checkElementIndex;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * <p>A transfer of coins from one address to another creates a transaction in which the outputs
+ * A transfer of coins from one address to another creates a transaction in which the outputs
  * can be claimed by the recipient in the input of another transaction. You can imagine a
  * transaction as being a module which is wired up to others, the inputs of one have to be wired
- * to the outputs of another. The exceptions are coinbase transactions, which create new coins.</p>
- * 
- * <p>Instances of this class are not safe for use by multiple threads.</p>
+ * to the outputs of another. The exceptions are coinbase transactions, which create new coins.
  */
-public class TransactionInput extends ChildMessage {
+public class TransactionInput extends ChildMessage implements Serializable {
     /** Magic sequence number that indicates there is no sequence number. */
     public static final long NO_SEQUENCE = 0xFFFFFFFFL;
-    private static final byte[] EMPTY_ARRAY = new byte[0];
+    private static final long serialVersionUID = 2;
+    public static final byte[] EMPTY_ARRAY = new byte[0];
     // Magic outpoint index that indicates the input is in fact unconnected.
     private static final long UNCONNECTED = 0xFFFFFFFFL;
 
@@ -60,7 +60,7 @@ public class TransactionInput extends ChildMessage {
     private byte[] scriptBytes;
     // The Script object obtained from parsing scriptBytes. Only filled in on demand and if the transaction is not
     // coinbase.
-    private WeakReference<Script> scriptSig;
+    private transient WeakReference<Script> scriptSig;
     /** Value of the output connected to the input, if known. This field does not participate in equals()/hashCode(). */
     @Nullable
     private Coin value;
@@ -120,21 +120,33 @@ public class TransactionInput extends ChildMessage {
      * @param params NetworkParameters object.
      * @param payload Bitcoin protocol formatted byte array containing message content.
      * @param offset The location of the first payload byte within the array.
-     * @param serializer the serializer to use for this message.
+     * @param parseLazy Whether to perform a full parse immediately or delay until a read is requested.
+     * @param parseRetain Whether to retain the backing byte array for quick reserialization.  
+     * If true and the backing byte array is invalidated due to modification of a field then 
+     * the cached bytes may be repopulated and retained if the message is serialized again in the future.
+     * as the length will be provided as part of the header.  If unknown then set to Message.UNKNOWN_LENGTH
      * @throws ProtocolException
      */
-    public TransactionInput(NetworkParameters params, Transaction parentTransaction, byte[] payload, int offset, MessageSerializer serializer)
+    public TransactionInput(NetworkParameters params, Transaction parentTransaction, byte[] payload, int offset,
+                            boolean parseLazy, boolean parseRetain)
             throws ProtocolException {
-        super(params, payload, offset, parentTransaction, serializer, UNKNOWN_LENGTH);
+        super(params, payload, offset, parentTransaction, parseLazy, parseRetain, UNKNOWN_LENGTH);
         this.value = null;
     }
 
     @Override
-    protected void parse() throws ProtocolException {
-        outpoint = new TransactionOutPoint(params, payload, cursor, this, serializer);
+    protected void parseLite() throws ProtocolException {
+        int curs = cursor;
+        int scriptLen = (int) readVarInt(36);
+        length = cursor - offset + scriptLen + 4;
+        cursor = curs;
+    }
+
+    @Override
+    void parse() throws ProtocolException {
+        outpoint = new TransactionOutPoint(params, payload, cursor, this, parseLazy, parseRetain);
         cursor += outpoint.getMessageSize();
         int scriptLen = (int) readVarInt();
-        length = cursor - offset + scriptLen + 4;
         scriptBytes = readBytes(scriptLen);
         sequence = readUint32();
     }
@@ -151,6 +163,7 @@ public class TransactionInput extends ChildMessage {
      * Coinbase transactions have special inputs with hashes of zero. If this is such an input, returns true.
      */
     public boolean isCoinBase() {
+        maybeParse();
         return outpoint.getHash().equals(Sha256Hash.ZERO_HASH) &&
                 (outpoint.getIndex() & 0xFFFFFFFFL) == 0xFFFFFFFFL;  // -1 but all is serialized to the wire as unsigned int.
     }
@@ -164,6 +177,7 @@ public class TransactionInput extends ChildMessage {
         // parameter is overloaded to be something totally different.
         Script script = scriptSig == null ? null : scriptSig.get();
         if (script == null) {
+            maybeParse();
             script = new Script(scriptBytes);
             scriptSig = new WeakReference<Script>(script);
         }
@@ -198,6 +212,7 @@ public class TransactionInput extends ChildMessage {
      * examples of how you can use this feature to build contract protocols.
      */
     public long getSequenceNumber() {
+        maybeParse();
         return sequence;
     }
 
@@ -217,6 +232,7 @@ public class TransactionInput extends ChildMessage {
      * data needed to connect to the output of the transaction we're gathering coins from.
      */
     public TransactionOutPoint getOutpoint() {
+        maybeParse();
         return outpoint;
     }
 
@@ -227,12 +243,8 @@ public class TransactionInput extends ChildMessage {
      * @return the scriptBytes
      */
     public byte[] getScriptBytes() {
+        maybeParse();
         return scriptBytes;
-    }
-
-    /** Clear input scripts, e.g. in preparation for signing. */
-    public void clearScriptBytes() {
-        setScriptBytes(TransactionInput.EMPTY_ARRAY);
     }
 
     /**
@@ -371,6 +383,16 @@ public class TransactionInput extends ChildMessage {
     }
 
     /**
+     * Ensure object is fully parsed before invoking java serialization.  The backing byte array
+     * is transient so if the object has parseLazy = true and hasn't invoked checkParse yet
+     * then data will be lost during serialization.
+     */
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        maybeParse();
+        out.defaultWriteObject();
+    }
+
+    /**
      * @return true if this transaction's sequence number is set (ie it may be a part of a time-locked transaction)
      */
     public boolean hasSequence() {
@@ -428,16 +450,6 @@ public class TransactionInput extends ChildMessage {
         return getOutpoint().getConnectedOutput();
     }
 
-    /**
-     * Returns the connected transaction, assuming the input was connected with
-     * {@link TransactionInput#connect(TransactionOutput)} or variants at some point. If it wasn't connected, then
-     * this method returns null.
-     */
-    @Nullable
-    public Transaction getConnectedTransaction() {
-        return getOutpoint().fromTx;
-    }
-
     /** Returns a copy of the input detached from its containing transaction, if need be. */
     public TransactionInput duplicateDetached() {
         return new TransactionInput(params, null, bitcoinSerialize(), 0);
@@ -458,14 +470,25 @@ public class TransactionInput extends ChildMessage {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        TransactionInput other = (TransactionInput) o;
-        return sequence == other.sequence && parent == other.parent
-            && outpoint.equals(other.outpoint) && Arrays.equals(scriptBytes, other.scriptBytes);
+
+        TransactionInput input = (TransactionInput) o;
+
+        if (sequence != input.sequence) return false;
+        if (!outpoint.equals(input.outpoint)) return false;
+        if (!Arrays.equals(scriptBytes, input.scriptBytes)) return false;
+        if (scriptSig != null ? !scriptSig.equals(input.scriptSig) : input.scriptSig != null) return false;
+        if (parent != input.parent) return false;
+
+        return true;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(sequence, outpoint, Arrays.hashCode(scriptBytes));
+        int result = (int) (sequence ^ (sequence >>> 32));
+        result = 31 * result + outpoint.hashCode();
+        result = 31 * result + (scriptBytes != null ? Arrays.hashCode(scriptBytes) : 0);
+        result = 31 * result + (scriptSig != null ? scriptSig.hashCode() : 0);
+        return result;
     }
 
     /**

@@ -21,11 +21,8 @@ import org.bitcoinj.core.*;
 import org.bitcoinj.utils.*;
 import org.slf4j.*;
 
-import com.google.common.base.Stopwatch;
-
 import javax.annotation.*;
 import java.io.*;
-import java.util.Date;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
@@ -66,11 +63,6 @@ public class WalletFiles {
         void onAfterAutoSave(File newlySavedFile);
     }
 
-    /**
-     * Initialize atomic and optionally delayed writing of the wallet file to disk. Note the initial wallet state isn't
-     * saved automatically. The {@link Wallet} calls {@link #saveNow()} or {@link #saveLater()} as wallet state changes,
-     * depending on the urgency of the changes.
-     */
     public WalletFiles(final Wallet wallet, File file, long delay, TimeUnit delayTimeUnit) {
         // An executor that starts up threads when needed and shuts them down later.
         this.executor = new ScheduledThreadPoolExecutor(1, new ContextPropagatingThreadFactory("Wallet autosave thread", Thread.MIN_PRIORITY));
@@ -91,11 +83,7 @@ public class WalletFiles {
                     // Some other scheduled request already beat us to it.
                     return null;
                 }
-                Date lastBlockSeenTime = wallet.getLastBlockSeenTime();
-                log.info("Background saving wallet; last seen block is height {}, date {}, hash {}",
-                        wallet.getLastBlockSeenHeight(),
-                        lastBlockSeenTime != null ? Utils.dateTimeFormat(lastBlockSeenTime) : "unknown",
-                        wallet.getLastBlockSeenHash());
+                log.info("Background saving wallet, last seen block is {}/{}", wallet.getLastBlockSeenHeight(), wallet.getLastBlockSeenHash());
                 saveNowInternal();
                 return null;
             }
@@ -113,15 +101,12 @@ public class WalletFiles {
     public void saveNow() throws IOException {
         // Can be called by any thread. However the wallet is locked whilst saving, so we can have two saves in flight
         // but they will serialize (using different temp files).
-        Date lastBlockSeenTime = wallet.getLastBlockSeenTime();
-        log.info("Saving wallet; last seen block is height {}, date {}, hash {}", wallet.getLastBlockSeenHeight(),
-                lastBlockSeenTime != null ? Utils.dateTimeFormat(lastBlockSeenTime) : "unknown",
-                wallet.getLastBlockSeenHash());
+        log.info("Saving wallet, last seen block is {}/{}", wallet.getLastBlockSeenHeight(), wallet.getLastBlockSeenHash());
         saveNowInternal();
     }
 
     private void saveNowInternal() throws IOException {
-        final Stopwatch watch = Stopwatch.createStarted();
+        long now = System.currentTimeMillis();
         File directory = file.getAbsoluteFile().getParentFile();
         File temp = File.createTempFile("wallet", null, directory);
         final Listener listener = vListener;
@@ -130,8 +115,7 @@ public class WalletFiles {
         wallet.saveToFile(temp, file);
         if (listener != null)
             listener.onAfterAutoSave(file);
-        watch.stop();
-        log.info("Save completed in {}", watch);
+        log.info("Save completed in {}msec", System.currentTimeMillis() - now);
     }
 
     /** Queues up a save in the background. Useful for not very important wallet changes. */

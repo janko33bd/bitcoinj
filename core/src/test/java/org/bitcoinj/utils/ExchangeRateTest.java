@@ -18,12 +18,8 @@ package org.bitcoinj.utils;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-
 import org.junit.Test;
+
 import org.bitcoinj.core.Coin;
 
 public class ExchangeRateTest {
@@ -68,15 +64,5 @@ public class ExchangeRateTest {
     @Test(expected = IllegalArgumentException.class)
     public void constructFiatCoin() {
         new ExchangeRate(Fiat.valueOf("EUR", -1));
-    }
-
-    @Test
-    public void testJavaSerialization() throws Exception {
-        ExchangeRate rate = new ExchangeRate(Fiat.parseFiat("EUR", "500"));
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        new ObjectOutputStream(os).writeObject(rate);
-        ExchangeRate rateCopy = (ExchangeRate) new ObjectInputStream(
-                new ByteArrayInputStream(os.toByteArray())).readObject();
-        assertEquals(rate, rateCopy);
     }
 }

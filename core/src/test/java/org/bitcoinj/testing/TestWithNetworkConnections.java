@@ -17,8 +17,6 @@
 
 package org.bitcoinj.testing;
 
-import org.bitcoinj.core.listeners.PeerDisconnectedEventListener;
-import org.bitcoinj.core.listeners.PreMessageReceivedEventListener;
 import org.bitcoinj.core.*;
 import org.bitcoinj.net.*;
 import org.bitcoinj.params.UnitTestParams;
@@ -46,7 +44,7 @@ import static com.google.common.base.Preconditions.checkState;
  */
 public class TestWithNetworkConnections {
     public static final int PEER_SERVERS = 5;
-    protected static final NetworkParameters PARAMS = UnitTestParams.get();
+    protected final NetworkParameters params = UnitTestParams.get();
     protected Context context;
     protected BlockStore blockStore;
     protected BlockChain blockChain;
@@ -83,16 +81,16 @@ public class TestWithNetworkConnections {
     public void setUp(BlockStore blockStore) throws Exception {
         BriefLogFormatter.init();
 
-        context = new Context(PARAMS);
+        context = new Context(params);
         Wallet.SendRequest.DEFAULT_FEE_PER_KB = Coin.ZERO;
         this.blockStore = blockStore;
         // Allow subclasses to override the wallet object with their own.
         if (wallet == null) {
-            wallet = new Wallet(PARAMS);
+            wallet = new Wallet(params);
             key = wallet.freshReceiveKey();
-            address = key.toAddress(PARAMS);
+            address = key.toAddress(params);
         }
-        blockChain = new BlockChain(PARAMS, wallet, blockStore);
+        blockChain = new BlockChain(params, wallet, blockStore);
 
         startPeerServers();
         if (clientType == ClientType.NIO_CLIENT_MANAGER || clientType == ClientType.BLOCKING_CLIENT_MANAGER) {
@@ -110,11 +108,11 @@ public class TestWithNetworkConnections {
     }
 
     protected void startPeerServer(int i) throws IOException {
-        peerServers[i] = new NioServer(new StreamConnectionFactory() {
+        peerServers[i] = new NioServer(new StreamParserFactory() {
             @Nullable
             @Override
-            public StreamConnection getNewConnection(InetAddress inetAddress, int port) {
-                return new InboundMessageQueuer(PARAMS) {
+            public StreamParser getNewParser(InetAddress inetAddress, int port) {
+                return new InboundMessageQueuer(params) {
                     @Override
                     public void connectionClosed() {
                     }
@@ -149,7 +147,7 @@ public class TestWithNetworkConnections {
         checkArgument(versionMessage.hasBlockChain());
         final AtomicBoolean doneConnecting = new AtomicBoolean(false);
         final Thread thisThread = Thread.currentThread();
-        peer.addDisconnectedEventListener(new PeerDisconnectedEventListener() {
+        peer.addEventListener(new AbstractPeerEventListener() {
             @Override
             public void onPeerDisconnected(Peer p, int peerCount) {
                 synchronized (doneConnecting) {
@@ -207,7 +205,7 @@ public class TestWithNetworkConnections {
     private void inboundPongAndWait(final InboundMessageQueuer p, final long nonce) throws Exception {
         // Receive a ping (that the Peer doesn't see) and wait for it to get through the socket
         final SettableFuture<Void> pongReceivedFuture = SettableFuture.create();
-        PreMessageReceivedEventListener listener = new PreMessageReceivedEventListener() {
+        PeerEventListener listener = new AbstractPeerEventListener() {
             @Override
             public Message onPreMessageReceived(Peer p, Message m) {
                 if (m instanceof Pong && ((Pong) m).getNonce() == nonce) {
@@ -217,10 +215,10 @@ public class TestWithNetworkConnections {
                 return m;
             }
         };
-        p.peer.addPreMessageReceivedEventListener(Threading.SAME_THREAD, listener);
+        p.peer.addEventListener(listener, Threading.SAME_THREAD);
         inbound(p, new Pong(nonce));
         pongReceivedFuture.get();
-        p.peer.removePreMessageReceivedEventListener(listener);
+        p.peer.removeEventListener(listener);
     }
 
     protected void pingAndWait(final InboundMessageQueuer p) throws Exception {

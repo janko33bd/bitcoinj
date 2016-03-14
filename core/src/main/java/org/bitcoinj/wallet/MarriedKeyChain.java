@@ -103,11 +103,9 @@ public class MarriedKeyChain extends DeterministicKeyChain {
             } else if (entropy != null) {
                 chain = new MarriedKeyChain(entropy, getPassphrase(), seedCreationTimeSecs);
             } else if (seed != null) {
-                seed.setCreationTimeSeconds(seedCreationTimeSecs);
                 chain = new MarriedKeyChain(seed);
             } else {
-                watchingKey.setCreationTimeSeconds(seedCreationTimeSecs);
-                chain = new MarriedKeyChain(watchingKey);
+                chain = new MarriedKeyChain(watchingKey, seedCreationTimeSecs);
             }
             chain.addFollowingAccountKeys(followingKeys, threshold);
             return chain;
@@ -121,6 +119,10 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     // Protobuf deserialization constructors
     MarriedKeyChain(DeterministicKey accountKey) {
         super(accountKey, false);
+    }
+
+    MarriedKeyChain(DeterministicKey accountKey, long seedCreationTimeSecs) {
+        super(accountKey, seedCreationTimeSecs);
     }
 
     MarriedKeyChain(DeterministicSeed seed, KeyCrypter crypter) {
@@ -178,6 +180,7 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     /** Get the redeem data for a key in this married chain */
     @Override
     public RedeemData getRedeemData(DeterministicKey followedKey) {
+        checkState(isMarried());
         List<ECKey> marriedKeys = getMarriedKeysWithFollowed(followedKey);
         Script redeemScript = ScriptBuilder.createRedeemScript(sigsRequiredToSpend, marriedKeys);
         return RedeemData.of(marriedKeys, redeemScript);
@@ -236,10 +239,10 @@ public class MarriedKeyChain extends DeterministicKeyChain {
 
     @Override
     protected void formatAddresses(boolean includePrivateKeys, NetworkParameters params, StringBuilder builder2) {
-        for (DeterministicKeyChain followingChain : followingKeyChains)
-            builder2.append("Following chain:  ").append(followingChain.getWatchingKey().serializePubB58(params))
-                    .append('\n');
-        builder2.append('\n');
+        for (DeterministicKeyChain followingChain : followingKeyChains) {
+            builder2.append(String.format(Locale.US, "Following chain:  %s%n", followingChain.getWatchingKey().serializePubB58(params)));
+        }
+        builder2.append(String.format(Locale.US, "%n"));
         for (RedeemData redeemData : marriedKeysRedeemData.values())
             formatScript(ScriptBuilder.createP2SHOutputScript(redeemData.redeemScript), builder2, params);
     }
@@ -251,7 +254,7 @@ public class MarriedKeyChain extends DeterministicKeyChain {
         builder.append(Utils.HEX.encode(script.getPubKeyHash()));
         if (script.getCreationTimeSeconds() > 0)
             builder.append("  creationTimeSeconds:").append(script.getCreationTimeSeconds());
-        builder.append('\n');
+        builder.append("\n");
     }
 
     @Override

@@ -16,11 +16,7 @@
 
 package org.bitcoinj.protocols.channels;
 
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Multimap;
 import org.bitcoinj.core.*;
-import org.bitcoinj.script.Script;
-import org.bitcoinj.script.ScriptBuilder;
 import org.bitcoinj.utils.Threading;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.HashMultimap;
@@ -31,7 +27,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
-import java.util.*;
+import java.util.Date;
+import java.util.Locale;
+import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -82,7 +82,7 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
      *
      * @param transactionBroadcaster which is used to complete and announce contract and refund transactions.
      */
-    public final void setTransactionBroadcaster(TransactionBroadcaster transactionBroadcaster) {
+    public void setTransactionBroadcaster(TransactionBroadcaster transactionBroadcaster) {
         this.announcePeerGroupFuture.set(checkNotNull(transactionBroadcaster));
     }
 
@@ -166,7 +166,7 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
      * Finds a channel with the given id and contract hash and returns it, or returns null.
      */
     @Nullable
-    public StoredClientChannel getChannel(Sha256Hash id, Sha256Hash contractHash) {
+    StoredClientChannel getChannel(Sha256Hash id, Sha256Hash contractHash) {
         lock.lock();
         try {
             Set<StoredClientChannel> setChannels = mapChannels.get(id);
@@ -175,18 +175,6 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
                     return channel;
             }
             return null;
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    /**
-     * Get a copy of all {@link StoredClientChannel}s
-     */
-    public Multimap<Sha256Hash, StoredClientChannel> getChannelMap() {
-        lock.lock();
-        try {
-            return ImmutableMultimap.copyOf(mapChannels);
         } finally {
             lock.unlock();
         }
@@ -217,16 +205,10 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
             channelTimeoutHandler.schedule(new TimerTask() {
                 @Override
                 public void run() {
-                    try {
-                        TransactionBroadcaster announcePeerGroup = getAnnouncePeerGroup();
-                        removeChannel(channel);
-                        announcePeerGroup.broadcastTransaction(channel.contract);
-                        announcePeerGroup.broadcastTransaction(channel.refund);
-                    } catch (Exception e) {
-                        // Something went wrong closing the channel - we catch
-                        // here or else we take down the whole Timer.
-                        log.error("Auto-closing channel failed", e);
-                    }
+                    TransactionBroadcaster announcePeerGroup = getAnnouncePeerGroup();
+                    removeChannel(channel);
+                    announcePeerGroup.broadcastTransaction(channel.contract);
+                    announcePeerGroup.broadcastTransaction(channel.refund);
                 }
                 // Add the difference between real time and Utils.now() so that test-cases can use a mock clock.
             }, new Date(channel.expiryTimeSeconds() * 1000 + (System.currentTimeMillis() - Utils.currentTimeMillis())));
@@ -287,31 +269,21 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
     public byte[] serializeWalletExtension() {
         lock.lock();
         try {
-            final NetworkParameters params = getNetworkParameters();
-            // If we haven't attached to a wallet yet we can't check against network parameters
-            final boolean hasMaxMoney = params != null ? params.hasMaxMoney() : true;
-            final Coin networkMaxMoney = params != null ? params.getMaxMoney() : NetworkParameters.MAX_MONEY;
             ClientState.StoredClientPaymentChannels.Builder builder = ClientState.StoredClientPaymentChannels.newBuilder();
             for (StoredClientChannel channel : mapChannels.values()) {
                 // First a few asserts to make sure things won't break
-                checkState(channel.valueToMe.signum() >= 0 &&
-                        (!hasMaxMoney || channel.valueToMe.compareTo(networkMaxMoney) <= 0));
-                checkState(channel.refundFees.signum() >= 0 &&
-                        (!hasMaxMoney || channel.refundFees.compareTo(networkMaxMoney) <= 0));
+                checkState(channel.valueToMe.signum() >= 0 && channel.valueToMe.compareTo(NetworkParameters.MAX_MONEY) <= 0);
+                checkState(channel.refundFees.signum() >= 0 && channel.refundFees.compareTo(NetworkParameters.MAX_MONEY) <= 0);
                 checkNotNull(channel.myKey.getPubKey());
                 checkState(channel.refund.getConfidence().getSource() == TransactionConfidence.Source.SELF);
-                checkNotNull(channel.myKey.getPubKey());
                 final ClientState.StoredClientPaymentChannel.Builder value = ClientState.StoredClientPaymentChannel.newBuilder()
-                        .setMajorVersion(channel.majorVersion)
                         .setId(ByteString.copyFrom(channel.id.getBytes()))
-                        .setContractTransaction(ByteString.copyFrom(channel.contract.unsafeBitcoinSerialize()))
-                        .setRefundFees(channel.refundFees.value)
-                        .setRefundTransaction(ByteString.copyFrom(channel.refund.unsafeBitcoinSerialize()))
+                        .setContractTransaction(ByteString.copyFrom(channel.contract.bitcoinSerialize()))
+                        .setRefundTransaction(ByteString.copyFrom(channel.refund.bitcoinSerialize()))
                         .setMyKey(ByteString.copyFrom(new byte[0])) // Not  used, but protobuf message requires
                         .setMyPublicKey(ByteString.copyFrom(channel.myKey.getPubKey()))
-                        .setServerKey(ByteString.copyFrom(channel.serverKey.getPubKey()))
                         .setValueToMe(channel.valueToMe.value)
-                        .setExpiryTime(channel.expiryTime);
+                        .setRefundFees(channel.refundFees.value);
                 if (channel.close != null)
                     value.setCloseTransactionHash(ByteString.copyFrom(channel.close.getHash().getBytes()));
                 builder.addChannels(value);
@@ -331,22 +303,17 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
             NetworkParameters params = containingWallet.getParams();
             ClientState.StoredClientPaymentChannels states = ClientState.StoredClientPaymentChannels.parseFrom(data);
             for (ClientState.StoredClientPaymentChannel storedState : states.getChannelsList()) {
-                Transaction refundTransaction = params.getDefaultSerializer().makeTransaction(storedState.getRefundTransaction().toByteArray());
+                Transaction refundTransaction = new Transaction(params, storedState.getRefundTransaction().toByteArray());
                 refundTransaction.getConfidence().setSource(TransactionConfidence.Source.SELF);
                 ECKey myKey = (storedState.getMyKey().isEmpty()) ?
                         containingWallet.findKeyFromPubKey(storedState.getMyPublicKey().toByteArray()) :
                         ECKey.fromPrivate(storedState.getMyKey().toByteArray());
-                ECKey serverKey = storedState.hasServerKey() ? ECKey.fromPublicOnly(storedState.getServerKey().toByteArray()) : null;
-                StoredClientChannel channel = new StoredClientChannel(storedState.getMajorVersion(),
-                        Sha256Hash.wrap(storedState.getId().toByteArray()),
-                        params.getDefaultSerializer().makeTransaction(storedState.getContractTransaction().toByteArray()),
+                StoredClientChannel channel = new StoredClientChannel(Sha256Hash.wrap(storedState.getId().toByteArray()),
+                        new Transaction(params, storedState.getContractTransaction().toByteArray()),
                         refundTransaction,
                         myKey,
-                        serverKey,
                         Coin.valueOf(storedState.getValueToMe()),
-                        Coin.valueOf(storedState.getRefundFees()),
-                        storedState.getExpiryTime(),
-                        false);
+                        Coin.valueOf(storedState.getRefundFees()), false);
                 if (storedState.hasCloseTransactionHash()) {
                     Sha256Hash closeTxHash = Sha256Hash.wrap(storedState.getCloseTransactionHash().toByteArray());
                     channel.close = containingWallet.getTransaction(closeTxHash);
@@ -370,10 +337,6 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
             lock.unlock();
         }
     }
-
-    private @Nullable NetworkParameters getNetworkParameters() {
-        return this.containingWallet != null ? this.containingWallet.getNetworkParameters() : null;
-    }
 }
 
 /**
@@ -382,43 +345,29 @@ public class StoredPaymentChannelClientStates implements WalletExtension {
  * when they expire.
  */
 class StoredClientChannel {
-    int majorVersion;
     Sha256Hash id;
     Transaction contract, refund;
-    // The expiry time of the contract in protocol v2.
-    long expiryTime;
     // The transaction that closed the channel (generated by the server)
     Transaction close;
     ECKey myKey;
-    ECKey serverKey;
     Coin valueToMe, refundFees;
 
     // In-memory flag to indicate intent to resume this channel (or that the channel is already in use)
     boolean active = false;
 
-    StoredClientChannel(int majorVersion, Sha256Hash id, Transaction contract, Transaction refund, ECKey myKey, ECKey serverKey, Coin valueToMe,
-                        Coin refundFees, long expiryTime, boolean active) {
-        this.majorVersion = majorVersion;
+    StoredClientChannel(Sha256Hash id, Transaction contract, Transaction refund, ECKey myKey, Coin valueToMe,
+                        Coin refundFees, boolean active) {
         this.id = id;
         this.contract = contract;
         this.refund = refund;
         this.myKey = myKey;
-        this.serverKey = serverKey;
         this.valueToMe = valueToMe;
         this.refundFees = refundFees;
-        this.expiryTime = expiryTime;
         this.active = active;
     }
 
     long expiryTimeSeconds() {
-        switch (majorVersion) {
-            case 1:
-                return refund.getLockTime() + 60 * 5;
-            case 2:
-                return expiryTime + 60 * 5;
-            default:
-                throw new IllegalStateException("Invalid version");
-        }
+        return refund.getLockTime() + 60 * 5;
     }
 
     @Override
@@ -426,16 +375,13 @@ class StoredClientChannel {
         final String newline = String.format(Locale.US, "%n");
         final String closeStr = close == null ? "still open" : close.toString().replaceAll(newline, newline + "   ");
         return String.format(Locale.US, "Stored client channel for server ID %s (%s)%n" +
-                "    Version:     %d%n" +
                 "    Key:         %s%n" +
-                "    Server key:  %s%n" +
                 "    Value left:  %s%n" +
                 "    Refund fees: %s%n" +
-                "    Expiry     : %s%n" +
                 "    Contract:  %s" +
                 "Refund:    %s" +
                 "Close:     %s",
-                id, active ? "active" : "inactive", majorVersion, myKey, serverKey, valueToMe, refundFees, expiryTime,
+                id, active ? "active" : "inactive", myKey, valueToMe, refundFees,
                 contract.toString().replaceAll(newline, newline + "    "),
                 refund.toString().replaceAll(newline, newline + "    "),
                 closeStr);

@@ -1,6 +1,5 @@
 /*
  * Copyright 2013 Google Inc.
- * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +17,6 @@
 package org.bitcoinj.params;
 
 import java.math.BigInteger;
-import java.util.concurrent.TimeUnit;
 
 import org.bitcoinj.core.Block;
 import org.bitcoinj.core.Coin;
@@ -32,10 +30,6 @@ import org.bitcoinj.store.BlockStore;
 import org.bitcoinj.store.BlockStoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Stopwatch;
-
-import org.bitcoinj.core.BitcoinSerializer;
 
 /**
  * Parameters for Bitcoin-like networks.
@@ -79,7 +73,7 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
 
         // We need to find a block far back in the chain. It's OK that this is expensive because it only occurs every
         // two weeks after the initial block chain download.
-        final Stopwatch watch = Stopwatch.createStarted();
+        long now = System.currentTimeMillis();
         StoredBlock cursor = blockStore.get(prev.getHash());
         for (int i = 0; i < this.getInterval() - 1; i++) {
             if (cursor == null) {
@@ -89,9 +83,9 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
             }
             cursor = blockStore.get(cursor.getHeader().getPrevBlockHash());
         }
-        watch.stop();
-        if (watch.elapsed(TimeUnit.MILLISECONDS) > 50)
-            log.info("Difficulty transition traversal took {}", watch);
+        long elapsed = System.currentTimeMillis() - now;
+        if (elapsed > 50)
+            log.info("Difficulty transition traversal took {}msec", elapsed);
 
         Block blockIntervalAgo = cursor.getHeader();
         int timespan = (int) (prev.getTimeSeconds() - blockIntervalAgo.getTimeSeconds());
@@ -121,7 +115,7 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
 
         if (newTargetCompact != receivedTargetCompact)
             throw new VerificationException("Network provided difficulty bits do not match what was calculated: " +
-                    Long.toHexString(newTargetCompact) + " vs " + Long.toHexString(receivedTargetCompact));
+                    newTargetCompact + " vs " + receivedTargetCompact);
     }
 
     @Override
@@ -137,16 +131,6 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
     @Override
     public MonetaryFormat getMonetaryFormat() {
         return new MonetaryFormat();
-    }
-
-    @Override
-    public int getProtocolVersionNum(final ProtocolVersion version) {
-        return version.getBitcoinProtocolVersion();
-    }
-
-    @Override
-    public BitcoinSerializer getSerializer(boolean parseRetain) {
-        return new BitcoinSerializer(this, parseRetain);
     }
 
     @Override

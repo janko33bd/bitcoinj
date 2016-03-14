@@ -17,7 +17,6 @@
 package org.bitcoinj.core;
 
 import org.bitcoinj.script.*;
-import com.google.common.base.Objects;
 
 import java.io.*;
 import java.math.*;
@@ -30,7 +29,8 @@ import java.util.Locale;
  * It avoids having to store the entire parentTransaction just to get the hash and index.
  * Useful when working with free standing outputs.
  */
-public class UTXO {
+public class UTXO implements Serializable {
+    private static final long serialVersionUID = -8744924157056340509L;
 
     private Coin value;
     private Script script;
@@ -162,7 +162,7 @@ public class UTXO {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(getIndex(), getHash());
+        return hash.hashCode() + (int) index;
     }
 
     @Override
@@ -170,7 +170,8 @@ public class UTXO {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UTXO other = (UTXO) o;
-        return getIndex() == other.getIndex() && getHash().equals(other.getHash());
+        return getHash().equals(other.getHash()) &&
+                getIndex() == other.getIndex();
     }
 
     public void serializeToStream(OutputStream bos) throws IOException {

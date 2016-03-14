@@ -82,7 +82,8 @@ public class ChildNumber implements Comparable<ChildNumber> {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        return i == ((ChildNumber)o).i;
+        ChildNumber other = (ChildNumber) o;
+        return i == other.i;
     }
 
     @Override
@@ -92,7 +93,6 @@ public class ChildNumber implements Comparable<ChildNumber> {
 
     @Override
     public int compareTo(ChildNumber other) {
-        // note that in this implementation compareTo() is not consistent with equals()
         return Ints.compare(this.num(), other.num());
     }
 }

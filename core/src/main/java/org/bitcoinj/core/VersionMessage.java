@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright 2011 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +16,6 @@
 
 package org.bitcoinj.core;
 
-import com.google.common.base.Objects;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -25,17 +24,16 @@ import java.net.UnknownHostException;
 import java.util.Locale;
 
 /**
- * <p>A VersionMessage holds information exchanged during connection setup with another peer. Most of the fields are not
+ * A VersionMessage holds information exchanged during connection setup with another peer. Most of the fields are not
  * particularly interesting. The subVer field, since BIP 14, acts as a User-Agent string would. You can and should 
  * append to or change the subVer for your own software so other implementations can identify it, and you can look at
- * the subVer field received from other nodes to see what they are running.</p>
+ * the subVer field received from other nodes to see what they are running. <p>
  *
- * <p>After creating yourself a VersionMessage, you can pass it to {@link PeerGroup#setVersionMessage(VersionMessage)}
- * to ensure it will be used for each new connection.</p>
- * 
- * <p>Instances of this class are not safe for use by multiple threads.</p>
+ * After creating yourself a VersionMessage, you can pass it to {@link PeerGroup#setVersionMessage(VersionMessage)}
+ * to ensure it will be used for each new connection.
  */
 public class VersionMessage extends Message {
+    private static final long serialVersionUID = 7313594258967483180L;
 
     /** A services flag that denotes whether the peer has a copy of the block chain or not. */
     public static final int NODE_NETWORK = 1;
@@ -64,7 +62,7 @@ public class VersionMessage extends Message {
     public PeerAddress theirAddr;
     /**
      * User-Agent as defined in <a href="https://github.com/bitcoin/bips/blob/master/bip-0014.mediawiki">BIP 14</a>.
-     * Bitcoin Core sets it to something like "/Satoshi:0.9.1/".
+     * The official client sets it to something like "/Satoshi:0.9.1/".
      */
     public String subVer;
     /**
@@ -78,7 +76,7 @@ public class VersionMessage extends Message {
     public boolean relayTxesBeforeFilter;
 
     /** The version of this library release, as a string. */
-    public static final String BITCOINJ_VERSION = "0.14-SNAPSHOT";
+    public static final String BITCOINJ_VERSION = "0.13.5";
     /** The value that is prepended to the subVer field of this application. */
     public static final String LIBRARY_SUBVER = "/bitcoinj:" + BITCOINJ_VERSION + "/";
 
@@ -92,10 +90,10 @@ public class VersionMessage extends Message {
     
     public VersionMessage(NetworkParameters params, int newBestHeight) {
         super(params);
-        clientVersion = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.CURRENT);
+        clientVersion = NetworkParameters.PROTOCOL_VERSION;
         localServices = 0;
         time = System.currentTimeMillis() / 1000;
-        // Note that the Bitcoin Core doesn't do anything with these, and finding out your own external IP address
+        // Note that the official client doesn't do anything with these, and finding out your own external IP address
         // is kind of tricky anyway, so we just put nonsense here for now.
         try {
             // We hard-code the IPv4 localhost address here rather than use InetAddress.getLocalHost() because some
@@ -117,7 +115,16 @@ public class VersionMessage extends Message {
     }
 
     @Override
-    protected void parse() throws ProtocolException {
+    protected void parseLite() throws ProtocolException {
+        // NOP.  VersionMessage is never lazy parsed.
+    }
+
+    @Override
+    public void parse() throws ProtocolException {
+        if (parsed)
+            return;
+        parsed = true;
+
         clientVersion = (int) readUint32();
         localServices = readUint64().longValue();
         time = readUint64().longValue();
@@ -206,8 +213,24 @@ public class VersionMessage extends Message {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(bestHeight, clientVersion, localServices,
-            time, subVer, myAddr, theirAddr, relayTxesBeforeFilter);
+        return (int) bestHeight ^ clientVersion ^ (int) localServices ^ (int) time ^ subVer.hashCode() ^ myAddr.hashCode()
+            ^ theirAddr.hashCode() * (relayTxesBeforeFilter ? 1 : 2);
+    }
+
+    /**
+     * VersionMessage does not handle cached byte array so should not have a cached checksum.
+     */
+    @Override
+    byte[] getChecksum() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * VersionMessage does not handle cached byte array so should not have a cached checksum.
+     */
+    @Override
+    void setChecksum(byte[] checksum) {
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -239,8 +262,8 @@ public class VersionMessage extends Message {
 
     /**
      * Appends the given user-agent information to the subVer field. The subVer is composed of a series of
-     * name:version pairs separated by slashes in the form of a path. For example a typical subVer field for bitcoinj
-     * users might look like "/bitcoinj:0.13/MultiBit:1.2/" where libraries come further to the left.<p>
+     * name:version pairs separated by slashes in the form of a path. For example a typical subVer field for BitCoinJ
+     * users might look like "/BitCoinJ:0.4-SNAPSHOT/MultiBit:1.2/" where libraries come further to the left.<p>
      *
      * There can be as many components as you feel a need for, and the version string can be anything, but it is
      * recommended to use A.B.C where A = major, B = minor and C = revision for software releases, and dates for
@@ -249,7 +272,7 @@ public class VersionMessage extends Message {
      *
      * Anything put in the "comments" field will appear in brackets and may be used for platform info, or anything
      * else. For example, calling <tt>appendToSubVer("MultiBit", "1.0", "Windows")</tt> will result in a subVer being
-     * set of "/bitcoinj:1.0/MultiBit:1.0(Windows)/". Therefore the / ( and ) characters are reserved in all these
+     * set of "/BitCoinJ:1.0/MultiBit:1.0(Windows)/". Therefore the / ( and ) characters are reserved in all these
      * components. If you don't want to add a comment (recommended), pass null.<p>
      *
      * See <a href="https://github.com/bitcoin/bips/blob/master/bip-0014.mediawiki">BIP 14</a> for more information.
@@ -277,7 +300,7 @@ public class VersionMessage extends Message {
      * Returns true if the clientVersion field is >= Pong.MIN_PROTOCOL_VERSION. If it is then ping() is usable.
      */
     public boolean isPingPongSupported() {
-        return clientVersion >= params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.PONG);
+        return clientVersion >= Pong.MIN_PROTOCOL_VERSION;
     }
 
     /**
@@ -285,7 +308,7 @@ public class VersionMessage extends Message {
      * is available and the memory pool of the remote peer will be queried when the downloadData property is true.
      */
     public boolean isBloomFilteringSupported() {
-        return clientVersion >= params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
+        return clientVersion >= FilteredBlock.MIN_PROTOCOL_VERSION;
     }
 
     /** Returns true if the protocol version and service bits both indicate support for the getutxos message. */

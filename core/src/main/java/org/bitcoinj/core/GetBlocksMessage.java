@@ -1,6 +1,5 @@
-/*
+/**
  * Copyright 2011 Google Inc.
- * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,13 +22,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * <p>Represents the "getblocks" P2P network message, which requests the hashes of the parts of the block chain we're
- * missing. Those blocks can then be downloaded with a {@link GetDataMessage}.</p>
- * 
- * <p>Instances of this class are not safe for use by multiple threads.</p>
+ * Represents the "getblocks" P2P network message, which requests the hashes of the parts of the block chain we're
+ * missing. Those blocks can then be downloaded with a {@link GetDataMessage}.
  */
 public class GetBlocksMessage extends Message {
-
+    private static final long serialVersionUID = 3479412877853645644L;
     protected long version;
     protected List<Sha256Hash> locator;
     protected Sha256Hash stopHash;
@@ -46,13 +43,22 @@ public class GetBlocksMessage extends Message {
     }
 
     @Override
-    protected void parse() throws ProtocolException {
+    protected void parseLite() throws ProtocolException {
         cursor = offset;
         version = readUint32();
         int startCount = (int) readVarInt();
         if (startCount > 500)
             throw new ProtocolException("Number of locators cannot be > 500, received: " + startCount);
         length = cursor - offset + ((startCount + 1) * 32);
+    }
+
+    @Override
+    public void parse() throws ProtocolException {
+        cursor = offset;
+        version = readUint32();
+        int startCount = (int) readVarInt();
+        if (startCount > 500)
+            throw new ProtocolException("Number of locators cannot be > 500, received: " + startCount);
         locator = new ArrayList<Sha256Hash>(startCount);
         for (int i = 0; i < startCount; i++) {
             locator.add(readHash());
@@ -76,7 +82,7 @@ public class GetBlocksMessage extends Message {
     @Override
     protected void bitcoinSerializeToStream(OutputStream stream) throws IOException {
         // Version, for some reason.
-        Utils.uint32ToByteStreamLE(params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.CURRENT), stream);
+        Utils.uint32ToByteStreamLE(NetworkParameters.PROTOCOL_VERSION, stream);
         // Then a vector of block hashes. This is actually a "block locator", a set of block
         // identifiers that spans the entire chain with exponentially increasing gaps between
         // them, until we end up at the genesis block. See CBlockLocator::Set()
@@ -94,14 +100,17 @@ public class GetBlocksMessage extends Message {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         GetBlocksMessage other = (GetBlocksMessage) o;
-        return version == other.version && stopHash.equals(other.stopHash) &&
-            locator.size() == other.locator.size() && locator.containsAll(other.locator); // ignores locator ordering
+        return version == other.version &&
+               locator.size() == other.locator.size() &&
+               locator.containsAll(other.locator) &&
+               stopHash.equals(other.stopHash);
     }
 
     @Override
     public int hashCode() {
-        int hashCode = (int)version ^ "getblocks".hashCode() ^ stopHash.hashCode();
-        for (Sha256Hash aLocator : locator) hashCode ^= aLocator.hashCode(); // ignores locator ordering
+        int hashCode = (int) version ^ "getblocks".hashCode();
+        for (Sha256Hash aLocator : locator) hashCode ^= aLocator.hashCode();
+        hashCode ^= stopHash.hashCode();
         return hashCode;
     }
 }

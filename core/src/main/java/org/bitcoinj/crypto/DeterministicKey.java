@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright 2013 Matija Mazi.
  * Copyright 2014 Andreas Schildbach
  *
@@ -14,13 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.bitcoinj.crypto;
 
 import org.bitcoinj.core.*;
-
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 import org.spongycastle.crypto.params.KeyParameter;
 import org.spongycastle.math.ec.ECPoint;
@@ -51,6 +49,8 @@ public class DeterministicKey extends ECKey {
             return cn1.compareTo(cn2);
         }
     };
+
+    private static final long serialVersionUID = 1L;
 
     private final DeterministicKey parent;
     private final ImmutableList<ChildNumber> childNumberPath;
@@ -501,10 +501,13 @@ public class DeterministicKey extends ECKey {
     /**
       * Deserialize a base-58-encoded HD Key.
       *  @param parent The parent node in the given key's deterministic hierarchy.
-      *  @throws IllegalArgumentException if the base58 encoded key could not be parsed.
       */
     public static DeterministicKey deserializeB58(@Nullable DeterministicKey parent, String base58, NetworkParameters params) {
-        return deserialize(params, Base58.decodeChecked(base58), parent);
+        try {
+            return deserialize(params, Base58.decodeChecked(base58), parent);
+        } catch (AddressFormatException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     /**
@@ -590,7 +593,9 @@ public class DeterministicKey extends ECKey {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
+
         DeterministicKey other = (DeterministicKey) o;
+
         return super.equals(other)
                 && Arrays.equals(this.chainCode, other.chainCode)
                 && Objects.equal(this.childNumberPath, other.childNumberPath);
@@ -598,12 +603,15 @@ public class DeterministicKey extends ECKey {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(super.hashCode(), Arrays.hashCode(chainCode), childNumberPath);
+        int result = super.hashCode();
+        result = 31 * result + childNumberPath.hashCode();
+        result = 31 * result + Arrays.hashCode(chainCode);
+        return result;
     }
 
     @Override
     public String toString() {
-        final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).omitNullValues();
+        final ToStringHelper helper = Objects.toStringHelper(this).omitNullValues();
         helper.add("pub", Utils.HEX.encode(pub.getEncoded()));
         helper.add("chainCode", HEX.encode(chainCode));
         helper.add("path", getPathAsString());
