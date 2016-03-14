@@ -32,6 +32,7 @@ import org.bitcoinj.script.ScriptBuilder;
 import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -90,8 +91,9 @@ public class MarriedKeyChain extends DeterministicKeyChain {
             return self();
         }
 
+        @Override
         public MarriedKeyChain build() {
-            checkState(random != null || entropy != null || seed != null, "Must provide either entropy or random");
+            checkState(random != null || entropy != null || seed != null || watchingKey!= null, "Must provide either entropy or random or seed or watchingKey");
             checkNotNull(followingKeys, "followingKeys must be provided");
             MarriedKeyChain chain;
             if (threshold == 0)
@@ -100,8 +102,12 @@ public class MarriedKeyChain extends DeterministicKeyChain {
                 chain = new MarriedKeyChain(random, bits, getPassphrase(), seedCreationTimeSecs);
             } else if (entropy != null) {
                 chain = new MarriedKeyChain(entropy, getPassphrase(), seedCreationTimeSecs);
-            } else {
+            } else if (seed != null) {
+                seed.setCreationTimeSeconds(seedCreationTimeSecs);
                 chain = new MarriedKeyChain(seed);
+            } else {
+                watchingKey.setCreationTimeSeconds(seedCreationTimeSecs);
+                chain = new MarriedKeyChain(watchingKey);
             }
             chain.addFollowingAccountKeys(followingKeys, threshold);
             return chain;
@@ -172,7 +178,6 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     /** Get the redeem data for a key in this married chain */
     @Override
     public RedeemData getRedeemData(DeterministicKey followedKey) {
-        checkState(isMarried());
         List<ECKey> marriedKeys = getMarriedKeysWithFollowed(followedKey);
         Script redeemScript = ScriptBuilder.createRedeemScript(sigsRequiredToSpend, marriedKeys);
         return RedeemData.of(marriedKeys, redeemScript);
@@ -186,7 +191,7 @@ public class MarriedKeyChain extends DeterministicKeyChain {
         List<DeterministicKeyChain> followingKeyChains = Lists.newArrayList();
 
         for (DeterministicKey key : followingAccountKeys) {
-            checkArgument(key.getPath().size() == 1, "Following keys have to be account keys");
+            checkArgument(key.getPath().size() == getAccountPath().size(), "Following keys have to be account keys");
             DeterministicKeyChain chain = DeterministicKeyChain.watchAndFollow(key);
             if (lookaheadSize >= 0)
                 chain.setLookaheadSize(lookaheadSize);
@@ -231,10 +236,10 @@ public class MarriedKeyChain extends DeterministicKeyChain {
 
     @Override
     protected void formatAddresses(boolean includePrivateKeys, NetworkParameters params, StringBuilder builder2) {
-        for (DeterministicKeyChain followingChain : followingKeyChains) {
-            builder2.append(String.format("Following chain:  %s%n", followingChain.getWatchingKey().serializePubB58(params)));
-        }
-        builder2.append(String.format("%n"));
+        for (DeterministicKeyChain followingChain : followingKeyChains)
+            builder2.append("Following chain:  ").append(followingChain.getWatchingKey().serializePubB58(params))
+                    .append('\n');
+        builder2.append('\n');
         for (RedeemData redeemData : marriedKeysRedeemData.values())
             formatScript(ScriptBuilder.createP2SHOutputScript(redeemData.redeemScript), builder2, params);
     }
@@ -246,7 +251,7 @@ public class MarriedKeyChain extends DeterministicKeyChain {
         builder.append(Utils.HEX.encode(script.getPubKeyHash()));
         if (script.getCreationTimeSeconds() > 0)
             builder.append("  creationTimeSeconds:").append(script.getCreationTimeSeconds());
-        builder.append("\n");
+        builder.append('\n');
     }
 
     @Override

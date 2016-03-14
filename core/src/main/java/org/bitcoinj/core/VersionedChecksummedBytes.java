@@ -22,6 +22,8 @@ import java.io.Serializable;
 import java.util.Arrays;
 
 import com.google.common.base.Objects;
+import com.google.common.primitives.Ints;
+import com.google.common.primitives.UnsignedBytes;
 
 /**
  * <p>In Bitcoin the following format is often used to represent some type of key:</p>
@@ -31,7 +33,7 @@ import com.google.common.base.Objects;
  * <p>and the result is then Base58 encoded. This format is used for addresses, and private keys exported using the
  * dumpprivkey command.</p>
  */
-public class VersionedChecksummedBytes implements Serializable {
+public class VersionedChecksummedBytes implements Serializable, Cloneable, Comparable<VersionedChecksummedBytes> {
     protected final int version;
     protected byte[] bytes;
 
@@ -53,16 +55,20 @@ public class VersionedChecksummedBytes implements Serializable {
      * Returns the base-58 encoded String representation of this
      * object, including version and checksum bytes.
      */
-    @Override
-    public String toString() {
+    public final String toBase58() {
         // A stringified buffer is:
         //   1 byte version + data bytes + 4 bytes check code (a truncated hash)
         byte[] addressBytes = new byte[1 + bytes.length + 4];
         addressBytes[0] = (byte) version;
         System.arraycopy(bytes, 0, addressBytes, 1, bytes.length);
-        byte[] checksum = Utils.doubleDigest(addressBytes, 0, bytes.length + 1);
+        byte[] checksum = Sha256Hash.hashTwice(addressBytes, 0, bytes.length + 1);
         System.arraycopy(checksum, 0, addressBytes, bytes.length + 1, 4);
         return Base58.encode(addressBytes);
+    }
+
+    @Override
+    public String toString() {
+        return toBase58();
     }
 
     @Override
@@ -75,8 +81,30 @@ public class VersionedChecksummedBytes implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         VersionedChecksummedBytes other = (VersionedChecksummedBytes) o;
-        return this.version == other.version
-                && Arrays.equals(this.bytes, other.bytes);
+        return this.version == other.version && Arrays.equals(this.bytes, other.bytes);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * This implementation narrows the return type to <code>VersionedChecksummedBytes</code>
+     * and allows subclasses to throw <code>CloneNotSupportedException</code> even though it
+     * is never thrown by this implementation.
+     */
+    @Override
+    public VersionedChecksummedBytes clone() throws CloneNotSupportedException {
+        return (VersionedChecksummedBytes) super.clone();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * This implementation uses an optimized Google Guava method to compare <code>bytes</code>.
+     */
+    @Override
+    public int compareTo(VersionedChecksummedBytes o) {
+        int result = Ints.compare(this.version, o.version);
+        return result != 0 ? result : UnsignedBytes.lexicographicalComparator().compare(this.bytes, o.bytes);
     }
 
     /**

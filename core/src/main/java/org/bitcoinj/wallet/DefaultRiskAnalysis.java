@@ -18,12 +18,15 @@
 package org.bitcoinj.wallet;
 
 import org.bitcoinj.core.Coin;
+import org.bitcoinj.core.ECKey;
+import org.bitcoinj.core.ECKey.ECDSASignature;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionConfidence;
 import org.bitcoinj.core.TransactionInput;
 import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.Wallet;
+import org.bitcoinj.crypto.TransactionSignature;
 import org.bitcoinj.script.ScriptChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,14 +47,14 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
 
     /**
      * Any standard output smaller than this value (in satoshis) will be considered risky, as it's most likely be
-     * rejected by the network. Currently it's 546 satoshis. This is different from {@link Transaction#MIN_NONDUST_OUTPUT}
-     * because of an upcoming fee change in Bitcoin Core 0.9.
+     * rejected by the network. This is usually the same as {@link Transaction#MIN_NONDUST_OUTPUT} but can be
+     * different when the fee is about to change in Bitcoin Core.
      */
-    public static final Coin MIN_ANALYSIS_NONDUST_OUTPUT = Coin.valueOf(546);
+    public static final Coin MIN_ANALYSIS_NONDUST_OUTPUT = Transaction.MIN_NONDUST_OUTPUT;
 
     protected final Transaction tx;
     protected final List<Transaction> dependencies;
-    protected final Wallet wallet;
+    @Nullable protected final Wallet wallet;
 
     private Transaction nonStandard;
     protected Transaction nonFinal;
@@ -69,16 +72,26 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
         analyzed = true;
 
         Result result = analyzeIsFinal();
-        if (result != Result.OK)
+        if (result != null && result != Result.OK)
             return result;
 
         return analyzeIsStandard();
     }
 
+    @Nullable
     private Result analyzeIsFinal() {
         // Transactions we create ourselves are, by definition, not at risk of double spending against us.
         if (tx.getConfidence().getSource() == TransactionConfidence.Source.SELF)
             return Result.OK;
+
+        // We consider transactions that opt into replace-by-fee at risk of double spending.
+        if (tx.isOptInFullRBF()) {
+            nonFinal = tx;
+            return Result.NON_FINAL;
+        }
+
+        if (wallet == null)
+            return null;
 
         final int height = wallet.getLastBlockSeenHeight();
         final long time = wallet.getLastBlockSeenTimeSecs();
@@ -96,6 +109,7 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
                 return Result.NON_FINAL;
             }
         }
+
         return Result.OK;
     }
 
@@ -108,11 +122,12 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
         VERSION,
         DUST,
         SHORTEST_POSSIBLE_PUSHDATA,
-        NONEMPTY_STACK  // Not yet implemented (for post 0.12)
+        NONEMPTY_STACK, // Not yet implemented (for post 0.12)
+        SIGNATURE_CANONICAL_ENCODING
     }
 
     /**
-     * <p>Checks if a transaction is considered "standard" by the reference client's IsStandardTx and AreInputsStandard
+     * <p>Checks if a transaction is considered "standard" by Bitcoin Core's IsStandardTx and AreInputsStandard
      * functions.</p>
      *
      * <p>Note that this method currently only implements a minimum of checks. More to be added later.</p>
@@ -165,6 +180,21 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
         for (ScriptChunk chunk : input.getScriptSig().getChunks()) {
             if (chunk.data != null && !chunk.isShortestPossiblePushData())
                 return RuleViolation.SHORTEST_POSSIBLE_PUSHDATA;
+            if (chunk.isPushData()) {
+                ECDSASignature signature;
+                try {
+                    signature = ECKey.ECDSASignature.decodeFromDER(chunk.data);
+                } catch (RuntimeException x) {
+                    // Doesn't look like a signature.
+                    signature = null;
+                }
+                if (signature != null) {
+                    if (!TransactionSignature.isEncodingCanonical(chunk.data))
+                        return RuleViolation.SIGNATURE_CANONICAL_ENCODING;
+                    if (!signature.isCanonical())
+                        return RuleViolation.SIGNATURE_CANONICAL_ENCODING;
+                }
+            }
         }
         return RuleViolation.NONE;
     }
@@ -172,7 +202,7 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
     private Result analyzeIsStandard() {
         // The IsStandard rules don't apply on testnet, because they're just a safety mechanism and we don't want to
         // crush innovation with valueless test coins.
-        if (!wallet.getNetworkParameters().getId().equals(NetworkParameters.ID_MAINNET))
+        if (wallet != null && !wallet.getNetworkParameters().getId().equals(NetworkParameters.ID_MAINNET))
             return Result.OK;
 
         RuleViolation ruleViolation = isStandard(tx);

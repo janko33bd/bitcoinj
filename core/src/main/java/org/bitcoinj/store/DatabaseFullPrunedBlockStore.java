@@ -19,6 +19,7 @@ package org.bitcoinj.store;
 
 import com.google.common.collect.Lists;
 import org.bitcoinj.core.*;
+import org.bitcoinj.script.Script;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,27 +103,27 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
     private static final String INSERT_SETTINGS_SQL                             = "INSERT INTO settings(name, value) VALUES(?, ?)";
     private static final String UPDATE_SETTINGS_SQL                             = "UPDATE settings SET value = ? WHERE name = ?";
 
-    private static final String SELECT_HEADERS_SQL                              = "SELECT chainWork, height, header, wasUndoable FROM headers WHERE hash = ?";
-    private static final String INSERT_HEADERS_SQL                              = "INSERT INTO headers(hash, chainWork, height, header, wasUndoable) VALUES(?, ?, ?, ?, ?)";
-    private static final String UPDATE_HEADERS_SQL                              = "UPDATE headers SET wasUndoable=? WHERE hash=?";
+    private static final String SELECT_HEADERS_SQL                              = "SELECT chainwork, height, header, wasundoable FROM headers WHERE hash = ?";
+    private static final String INSERT_HEADERS_SQL                              = "INSERT INTO headers(hash, chainwork, height, header, wasundoable) VALUES(?, ?, ?, ?, ?)";
+    private static final String UPDATE_HEADERS_SQL                              = "UPDATE headers SET wasundoable=? WHERE hash=?";
 
-    private static final String SELECT_UNDOABLEBLOCKS_SQL                       = "SELECT txOutChanges, transactions FROM undoableBlocks WHERE hash = ?";
-    private static final String INSERT_UNDOABLEBLOCKS_SQL                       = "INSERT INTO undoableBlocks(hash, height, txOutChanges, transactions) VALUES(?, ?, ?, ?)";
-    private static final String UPDATE_UNDOABLEBLOCKS_SQL                       = "UPDATE undoableBlocks SET txOutChanges=?, transactions=? WHERE hash = ?";
-    private static final String DELETE_UNDOABLEBLOCKS_SQL                       = "DELETE FROM undoableBlocks WHERE height <= ?";
+    private static final String SELECT_UNDOABLEBLOCKS_SQL                       = "SELECT txoutchanges, transactions FROM undoableblocks WHERE hash = ?";
+    private static final String INSERT_UNDOABLEBLOCKS_SQL                       = "INSERT INTO undoableblocks(hash, height, txoutchanges, transactions) VALUES(?, ?, ?, ?)";
+    private static final String UPDATE_UNDOABLEBLOCKS_SQL                       = "UPDATE undoableblocks SET txoutchanges=?, transactions=? WHERE hash = ?";
+    private static final String DELETE_UNDOABLEBLOCKS_SQL                       = "DELETE FROM undoableblocks WHERE height <= ?";
 
-    private static final String SELECT_OPENOUTPUTS_SQL                          = "SELECT height, value, scriptBytes, coinbase, toaddress, addresstargetable FROM openOutputs WHERE hash = ? AND index = ?";
-    private static final String SELECT_OPENOUTPUTS_COUNT_SQL                    = "SELECT COUNT(*) FROM openOutputs WHERE hash = ?";
-    private static final String INSERT_OPENOUTPUTS_SQL                          = "INSERT INTO openOutputs (hash, index, height, value, scriptBytes, toAddress, addressTargetable, coinbase) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-    private static final String DELETE_OPENOUTPUTS_SQL                          = "DELETE FROM openOutputs WHERE hash = ? AND index = ?";
+    private static final String SELECT_OPENOUTPUTS_SQL                          = "SELECT height, value, scriptbytes, coinbase, toaddress, addresstargetable FROM openoutputs WHERE hash = ? AND index = ?";
+    private static final String SELECT_OPENOUTPUTS_COUNT_SQL                    = "SELECT COUNT(*) FROM openoutputs WHERE hash = ?";
+    private static final String INSERT_OPENOUTPUTS_SQL                          = "INSERT INTO openoutputs (hash, index, height, value, scriptbytes, toaddress, addresstargetable, coinbase) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    private static final String DELETE_OPENOUTPUTS_SQL                          = "DELETE FROM openoutputs WHERE hash = ? AND index = ?";
 
     // Dump table SQL (this is just for data sizing statistics).
     private static final String SELECT_DUMP_SETTINGS_SQL                        = "SELECT name, value FROM settings";
-    private static final String SELECT_DUMP_HEADERS_SQL                         = "SELECT chainWork, header FROM headers";
-    private static final String SELECT_DUMP_UNDOABLEBLOCKS_SQL                  = "SELECT txOutChanges, transactions FROM undoableBlocks";
-    private static final String SELECT_DUMP_OPENOUTPUTS_SQL                     = "SELECT value, scriptBytes FROM openOutputs";
+    private static final String SELECT_DUMP_HEADERS_SQL                         = "SELECT chainwork, header FROM headers";
+    private static final String SELECT_DUMP_UNDOABLEBLOCKS_SQL                  = "SELECT txoutchanges, transactions FROM undoableblocks";
+    private static final String SELECT_DUMP_OPENOUTPUTS_SQL                     = "SELECT value, scriptbytes FROM openoutputs";
 
-    private static final String SELECT_TRANSACTION_OUTPUTS_SQL                  = "SELECT hash, value, scriptBytes, height, index, coinbase, toaddress, addresstargetable FROM openOutputs where toaddress = ?";
+    private static final String SELECT_TRANSACTION_OUTPUTS_SQL                  = "SELECT hash, value, scriptbytes, height, index, coinbase, toaddress, addresstargetable FROM openoutputs where toaddress = ?";
 
     // Select the balance of an address SQL.
     private static final String SELECT_BALANCE_SQL                              = "select sum(value) from openoutputs where toaddress = ?";
@@ -131,7 +132,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
     private static final String SELECT_CHECK_TABLES_EXIST_SQL                   = "SELECT * FROM settings WHERE 1 = 2";
 
     // Compatibility SQL.
-    private static final String SELECT_COMPATIBILITY_COINBASE_SQL               = "SELECT coinbase FROM openOutputs WHERE 1 = 2";
+    private static final String SELECT_COMPATIBILITY_COINBASE_SQL               = "SELECT coinbase FROM openoutputs WHERE 1 = 2";
 
     protected Sha256Hash chainHeadHash;
     protected StoredBlock chainHeadBlock;
@@ -419,7 +420,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
      * <p>This will also automatically set up the schema if it does not exist within the DB.</p>
      * @throws BlockStoreException if successful connection to the DB couldn't be made.
      */
-    protected synchronized void maybeConnect() throws BlockStoreException {
+    protected synchronized final void maybeConnect() throws BlockStoreException {
         try {
             if (conn.get() != null && !conn.get().isClosed())
                 return;
@@ -561,7 +562,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             // Set up the genesis block. When we start out fresh, it is by
             // definition the top of the chain.
             StoredBlock storedGenesisHeader = new StoredBlock(params.getGenesisBlock().cloneAsHeader(), params.getGenesisBlock().getWork(), 0);
-            // The coinbase in the genesis block is not spendable. This is because of how the reference client inits
+            // The coinbase in the genesis block is not spendable. This is because of how Bitcoin Core inits
             // its database - the genesis transaction isn't actually in the db so its spent flags can never be updated.
             List<Transaction> genesisTransactions = Lists.newLinkedList();
             StoredUndoableBlock storedGenesis = new StoredUndoableBlock(params.getGenesisBlock().getHash(), genesisTransactions);
@@ -586,7 +587,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
         if (!rs.next()) {
             throw new BlockStoreException("corrupt database block store - no chain head pointer");
         }
-        Sha256Hash hash = new Sha256Hash(rs.getBytes(1));
+        Sha256Hash hash = Sha256Hash.wrap(rs.getBytes(1));
         rs.close();
         this.chainHeadBlock = get(hash);
         this.chainHeadHash = hash;
@@ -598,7 +599,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
         if (!rs.next()) {
             throw new BlockStoreException("corrupt database block store - no verified chain head pointer");
         }
-        hash = new Sha256Hash(rs.getBytes(1));
+        hash = Sha256Hash.wrap(rs.getBytes(1));
         rs.close();
         ps.close();
         this.verifiedChainHeadBlock = get(hash);
@@ -618,7 +619,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             s.setBytes(1, hashBytes);
             s.setBytes(2, storedBlock.getChainWork().toByteArray());
             s.setInt(3, storedBlock.getHeight());
-            s.setBytes(4, storedBlock.getHeader().unsafeBitcoinSerialize());
+            s.setBytes(4, storedBlock.getHeader().cloneAsHeader().unsafeBitcoinSerialize());
             s.setBoolean(5, wasUndoable);
             s.executeUpdate();
             s.close();
@@ -666,10 +667,10 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
                 txOutChanges = bos.toByteArray();
             } else {
                 int numTxn = undoableBlock.getTransactions().size();
-                bos.write((int) (0xFF & (numTxn >> 0)));
-                bos.write((int) (0xFF & (numTxn >> 8)));
-                bos.write((int) (0xFF & (numTxn >> 16)));
-                bos.write((int) (0xFF & (numTxn >> 24)));
+                bos.write(0xFF & numTxn);
+                bos.write(0xFF & (numTxn >> 8));
+                bos.write(0xFF & (numTxn >> 16));
+                bos.write(0xFF & (numTxn >> 24));
                 for (Transaction tx : undoableBlock.getTransactions())
                     tx.bitcoinSerialize(bos);
                 transactions = bos.toByteArray();
@@ -748,7 +749,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
 
             BigInteger chainWork = new BigInteger(results.getBytes(1));
             int height = results.getInt(2);
-            Block b = new Block(params, results.getBytes(3));
+            Block b = params.getDefaultSerializer().makeBlock(results.getBytes(3));
             b.verifyHeader();
             StoredBlock stored = new StoredBlock(b, chainWork, height);
             return stored;
@@ -804,13 +805,13 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             StoredUndoableBlock block;
             if (txOutChanges == null) {
                 int offset = 0;
-                int numTxn = ((transactions[offset++] & 0xFF) << 0) |
+                int numTxn = ((transactions[offset++] & 0xFF)) |
                         ((transactions[offset++] & 0xFF) << 8) |
                         ((transactions[offset++] & 0xFF) << 16) |
                         ((transactions[offset++] & 0xFF) << 24);
                 List<Transaction> transactionList = new LinkedList<Transaction>();
                 for (int i = 0; i < numTxn; i++) {
-                    Transaction tx = new Transaction(params, transactions, offset);
+                    Transaction tx = params.getDefaultSerializer().makeTransaction(transactions, offset);
                     transactionList.add(tx);
                     offset += tx.getMessageSize();
                 }
@@ -929,15 +930,13 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             byte[] scriptBytes = results.getBytes(3);
             boolean coinbase = results.getBoolean(4);
             String address = results.getString(5);
-            int addressType = results.getInt(6);
             UTXO txout = new UTXO(hash,
                     index,
                     value,
                     height,
                     coinbase,
-                    scriptBytes,
-                    address,
-                    addressType);
+                    new Script(scriptBytes),
+                    address);
             return txout;
         } catch (SQLException ex) {
             throw new BlockStoreException(ex);
@@ -963,9 +962,9 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             s.setInt(2, (int) out.getIndex());
             s.setInt(3, out.getHeight());
             s.setLong(4, out.getValue().value);
-            s.setBytes(5, out.getScriptBytes());
+            s.setBytes(5, out.getScript().getProgram());
             s.setString(6, out.getAddress());
-            s.setInt(7, out.getAddressType());
+            s.setInt(7, out.getScript().getScriptType().ordinal());
             s.setBoolean(8, out.isCoinbase());
             s.executeUpdate();
             s.close();
@@ -1130,7 +1129,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
      *         address, the return value is 0.
      * @throws BlockStoreException If there is an error getting the balance.
      */
-    protected BigInteger calculateBalanceForAddress(Address address) throws BlockStoreException {
+    public BigInteger calculateBalanceForAddress(Address address) throws BlockStoreException {
         maybeConnect();
         PreparedStatement s = null;
         try {
@@ -1138,7 +1137,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             s.setString(1, address.toString());
             ResultSet rs = s.executeQuery();
             BigInteger balance = BigInteger.ZERO;
-            while (rs.next()) {
+            if (rs.next()) {
                 return BigInteger.valueOf(rs.getLong(1));
             }
             return balance;
@@ -1166,22 +1165,20 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
                 s.setString(1, address.toString());
                 ResultSet rs = s.executeQuery();
                 while (rs.next()) {
-                    Sha256Hash hash = new Sha256Hash(rs.getBytes(1));
+                    Sha256Hash hash = Sha256Hash.wrap(rs.getBytes(1));
                     Coin amount = Coin.valueOf(rs.getLong(2));
                     byte[] scriptBytes = rs.getBytes(3);
                     int height = rs.getInt(4);
                     int index = rs.getInt(5);
                     boolean coinbase = rs.getBoolean(6);
                     String toAddress = rs.getString(7);
-                    int addressType = rs.getInt(8);
                     UTXO output = new UTXO(hash,
                             index,
                             amount,
                             height,
                             coinbase,
-                            scriptBytes,
-                            toAddress,
-                            addressType);
+                            new Script(scriptBytes),
+                            toAddress);
                     outputs.add(output);
                 }
             }
@@ -1218,7 +1215,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             count++;
         }
         rs.close();
-        System.out.printf("Settings size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
+        System.out.printf(Locale.US, "Settings size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
 
         totalSize += size; size = 0; count = 0;
         rs = s.executeQuery(getSelectHeadersDumpSQL());
@@ -1230,7 +1227,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             count++;
         }
         rs.close();
-        System.out.printf("Headers size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
+        System.out.printf(Locale.US, "Headers size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
 
         totalSize += size; size = 0; count = 0;
         rs = s.executeQuery(getSelectUndoableblocksDumpSQL());
@@ -1247,7 +1244,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             count++;
         }
         rs.close();
-        System.out.printf("Undoable Blocks size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
+        System.out.printf(Locale.US, "Undoable Blocks size: %d, count: %d, average size: %f%n", size, count, (double)size/count);
 
         totalSize += size; size = 0; count = 0;
         long scriptSize = 0;
@@ -1262,7 +1259,7 @@ public abstract class DatabaseFullPrunedBlockStore implements FullPrunedBlockSto
             count++;
         }
         rs.close();
-        System.out.printf("Open Outputs size: %d, count: %d, average size: %f, average script size: %f (%d in id indexes)%n",
+        System.out.printf(Locale.US, "Open Outputs size: %d, count: %d, average size: %f, average script size: %f (%d in id indexes)%n",
                 size, count, (double)size/count, (double)scriptSize/count, count * 8);
 
         totalSize += size;

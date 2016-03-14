@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Jim Burton.
  * Copyright 2014 Andreas Schildbach
  *
@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.bitcoinj.crypto;
 
 import com.google.common.base.Objects;
@@ -32,7 +33,6 @@ import org.spongycastle.crypto.paddings.PaddedBufferedBlockCipher;
 import org.spongycastle.crypto.params.KeyParameter;
 import org.spongycastle.crypto.params.ParametersWithIV;
 
-import java.io.Serializable;
 import java.security.SecureRandom;
 import java.util.Arrays;
 
@@ -52,10 +52,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * <p>2) Using the AES Key generated above, you then can encrypt and decrypt any bytes using
  * the AES symmetric cipher. Eight bytes of salt is used to prevent dictionary attacks.</p>
  */
-public class KeyCrypterScrypt implements KeyCrypter, Serializable {
+public class KeyCrypterScrypt implements KeyCrypter {
 
     private static final Logger log = LoggerFactory.getLogger(KeyCrypterScrypt.class);
-    private static final long serialVersionUID = 949662512049152670L;
 
     /**
      * Key length in bytes.
@@ -81,16 +80,17 @@ public class KeyCrypterScrypt implements KeyCrypter, Serializable {
         secureRandom = new SecureRandom();
     }
 
-    private static final transient SecureRandom secureRandom;
+    private static final SecureRandom secureRandom;
 
-    private static byte[] randomSalt() {
+    /** Returns SALT_LENGTH (8) bytes of random data */
+    public static byte[] randomSalt() {
         byte[] salt = new byte[SALT_LENGTH];
         secureRandom.nextBytes(salt);
         return salt;
     }
 
     // Scrypt parameters.
-    private final transient ScryptParameters scryptParameters;
+    private final ScryptParameters scryptParameters;
 
     /**
      * Encryption/Decryption using default parameters and a random salt.
@@ -197,24 +197,24 @@ public class KeyCrypterScrypt implements KeyCrypter, Serializable {
     /**
      * Decrypt bytes previously encrypted with this class.
      *
-     * @param privateKeyToDecode    The private key to decrypt
+     * @param dataToDecrypt    The data to decrypt
      * @param aesKey           The AES key to use for decryption
      * @return                 The decrypted bytes
-     * @throws                 KeyCrypterException if bytes could not be decoded to a valid key
+     * @throws                 KeyCrypterException if bytes could not be decrypted
      */
     @Override
-    public byte[] decrypt(EncryptedData privateKeyToDecode, KeyParameter aesKey) throws KeyCrypterException {
-        checkNotNull(privateKeyToDecode);
+    public byte[] decrypt(EncryptedData dataToDecrypt, KeyParameter aesKey) throws KeyCrypterException {
+        checkNotNull(dataToDecrypt);
         checkNotNull(aesKey);
 
         try {
-            ParametersWithIV keyWithIv = new ParametersWithIV(new KeyParameter(aesKey.getKey()), privateKeyToDecode.initialisationVector);
+            ParametersWithIV keyWithIv = new ParametersWithIV(new KeyParameter(aesKey.getKey()), dataToDecrypt.initialisationVector);
 
             // Decrypt the message.
             BufferedBlockCipher cipher = new PaddedBufferedBlockCipher(new CBCBlockCipher(new AESFastEngine()));
             cipher.init(false, keyWithIv);
 
-            byte[] cipherBytes = privateKeyToDecode.encryptedBytes;
+            byte[] cipherBytes = dataToDecrypt.encryptedBytes;
             byte[] decryptedBytes = new byte[cipher.getOutputSize(cipherBytes.length)];
             final int length1 = cipher.processBytes(cipherBytes, 0, cipherBytes.length, decryptedBytes, 0);
             final int length2 = cipher.doFinal(decryptedBytes, length1);
@@ -262,14 +262,13 @@ public class KeyCrypterScrypt implements KeyCrypter, Serializable {
 
     @Override
     public int hashCode() {
-        return com.google.common.base.Objects.hashCode(scryptParameters);
+        return Objects.hashCode(scryptParameters);
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        KeyCrypterScrypt other = (KeyCrypterScrypt) o;
-        return Objects.equal(scryptParameters, other.scryptParameters);
+        return Objects.equal(scryptParameters, ((KeyCrypterScrypt)o).scryptParameters);
     }
 }

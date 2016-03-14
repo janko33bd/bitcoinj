@@ -86,7 +86,7 @@ public class PostgresFullPrunedBlockStore extends DatabaseFullPrunedBlockStore {
     private static final String CREATE_OUTPUTS_HASH_INDEX               = "CREATE INDEX openoutputs_hash_idx ON openoutputs USING btree (hash)";
     private static final String CREATE_UNDOABLE_TABLE_INDEX             = "CREATE INDEX undoableblocks_height_idx ON undoableBlocks USING btree (height)";
 
-    private static final String SELECT_UNDOABLEBLOCKS_EXISTS_SQL        = "select 1 from undoableBlocks where hash = ?";
+    private static final String SELECT_UNDOABLEBLOCKS_EXISTS_SQL        = "select 1 from undoableblocks where hash = ?";
 
     /**
      * Creates a new PostgresFullPrunedBlockStore.
@@ -180,10 +180,10 @@ public class PostgresFullPrunedBlockStore extends DatabaseFullPrunedBlockStore {
                 txOutChanges = bos.toByteArray();
             } else {
                 int numTxn = undoableBlock.getTransactions().size();
-                bos.write((int) (0xFF & (numTxn >> 0)));
-                bos.write((int) (0xFF & (numTxn >> 8)));
-                bos.write((int) (0xFF & (numTxn >> 16)));
-                bos.write((int) (0xFF & (numTxn >> 24)));
+                bos.write(0xFF & numTxn);
+                bos.write(0xFF & (numTxn >> 8));
+                bos.write(0xFF & (numTxn >> 16));
+                bos.write(0xFF & (numTxn >> 24));
                 for (Transaction tx : undoableBlock.getTransactions())
                     tx.bitcoinSerialize(bos);
                 transactions = bos.toByteArray();

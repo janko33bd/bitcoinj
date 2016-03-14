@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  * Copyright 2014 Andreas Schildbach
  *
@@ -31,6 +31,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.io.File;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import org.bitcoinj.core.listeners.WalletCoinsReceivedEventListener;
 
 /**
  * ForwardingService demonstrates basic usage of the library. It sits on the network and when it receives coins, simply
@@ -62,7 +63,7 @@ public class ForwardingService {
             filePrefix = "forwarding-service";
         }
         // Parse the address given as the first parameter.
-        forwardingAddress = new Address(params, args[0]);
+        forwardingAddress = Address.fromBase58(params, args[0]);
 
         // Start up a basic app using a class that automates some boilerplate.
         kit = new WalletAppKit(params, new File("."), filePrefix);
@@ -78,7 +79,7 @@ public class ForwardingService {
         kit.awaitRunning();
 
         // We want to know when we receive money.
-        kit.wallet().addEventListener(new AbstractWalletEventListener() {
+        kit.wallet().addCoinsReceivedEventListener(new WalletCoinsReceivedEventListener() {
             @Override
             public void onCoinsReceived(Wallet w, Transaction tx, Coin prevBalance, Coin newBalance) {
                 // Runs in the dedicated "user thread" (see bitcoinj docs for more info on this).

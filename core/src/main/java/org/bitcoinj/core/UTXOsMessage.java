@@ -13,15 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.bitcoinj.core;
 
+import com.google.common.base.Objects;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Message representing a list of unspent transaction outputs, returned in response to sending a GetUTXOsMessage. */
+/**
+ * <p>Message representing a list of unspent transaction outputs ("utxos"), returned in response to sending a
+ * {@link GetUTXOsMessage} ("getutxos"). Note that both this message and the query that generates it are not
+ * supported by Bitcoin Core. An implementation is available in <a href="https://github.com/bitcoinxt/bitcoinxt">Bitcoin XT</a>,
+ * a patch set on top of Core. Thus if you want to use it, you must find some XT peers to connect to. This can be done
+ * using a {@link org.bitcoinj.net.discovery.HttpDiscovery} class combined with an HTTP/Cartographer seed.</p>
+ *
+ * <p>The getutxos/utxos protocol is defined in <a href="https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki">BIP 65</a>.
+ * In that document you can find a discussion of the security of this protocol (briefly, there is none). Because the
+ * data found in this message is not authenticated it should be used carefully. Places where it can be useful are if
+ * you're querying your own trusted node, if you're comparing answers from multiple nodes simultaneously and don't
+ * believe there is a MITM on your connection, or if you're only using the returned data as a UI hint and it's OK
+ * if the data is occasionally wrong. Bear in mind that the answer can be wrong even in the absence of malicious intent
+ * just through the nature of querying an ever changing data source: the UTXO set may be updated by a new transaction
+ * immediately after this message is returned.</p>
+ * 
+ * <p>Instances of this class are not safe for use by multiple threads.</p>
+ */
 public class UTXOsMessage extends Message {
     private long height;
     private Sha256Hash chainHead;
@@ -64,17 +83,17 @@ public class UTXOsMessage extends Message {
         stream.write(new VarInt(hits.length).encode());
         stream.write(hits);
         stream.write(new VarInt(outputs.size()).encode());
-        for (TransactionOutput output : outputs) {
-            // TODO: Allow these to be specified, if one day we care about sending this message ourselves
-            // (currently it's just used for unit testing).
-            Utils.uint32ToByteStreamLE(0L, stream);  // Version
-            Utils.uint32ToByteStreamLE(0L, stream);  // Height
+        for (int i = 0; i < outputs.size(); i++) {
+            TransactionOutput output = outputs.get(i);
+            Transaction tx = output.getParentTransaction();
+            Utils.uint32ToByteStreamLE(tx != null ? tx.getVersion() : 0L, stream);  // Version
+            Utils.uint32ToByteStreamLE(heights[i], stream);  // Height
             output.bitcoinSerializeToStream(stream);
         }
     }
 
     @Override
-    void parse() throws ProtocolException {
+    protected void parse() throws ProtocolException {
         // Format is:
         //   uint32 chainHeight
         //   uint256 chainHeadHash
@@ -107,19 +126,19 @@ public class UTXOsMessage extends Message {
         length = cursor;
     }
 
-    @Override
-    protected void parseLite() throws ProtocolException {
-        // Not used.
-    }
-
+    /**
+     * Returns a bit map indicating which of the queried outputs were found in the UTXO set.
+     */
     public byte[] getHitMap() {
         return Arrays.copyOf(hits, hits.length);
     }
 
+    /** Returns the list of outputs that matched the query. */
     public List<TransactionOutput> getOutputs() {
         return new ArrayList<TransactionOutput>(outputs);
     }
 
+    /** Returns the block heights of each output returned in getOutputs(), or MEMPOOL_HEIGHT if not confirmed yet. */
     public long[] getHeights() { return Arrays.copyOf(heights, heights.length); }
 
     @Override
@@ -137,25 +156,14 @@ public class UTXOsMessage extends Message {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
-        UTXOsMessage message = (UTXOsMessage) o;
-
-        if (height != message.height) return false;
-        if (!chainHead.equals(message.chainHead)) return false;
-        if (!Arrays.equals(heights, message.heights)) return false;
-        if (!Arrays.equals(hits, message.hits)) return false;
-        if (!outputs.equals(message.outputs)) return false;
-
-        return true;
+        UTXOsMessage other = (UTXOsMessage) o;
+        return height == other.height && chainHead.equals(other.chainHead)
+            && Arrays.equals(heights, other.heights) && Arrays.equals(hits, other.hits)
+            && outputs.equals(other.outputs);
     }
 
     @Override
     public int hashCode() {
-        int result = (int) (height ^ (height >>> 32));
-        result = 31 * result + chainHead.hashCode();
-        result = 31 * result + Arrays.hashCode(hits);
-        result = 31 * result + outputs.hashCode();
-        result = 31 * result + Arrays.hashCode(heights);
-        return result;
+        return Objects.hashCode(height, chainHead, Arrays.hashCode(heights), Arrays.hashCode(hits), outputs);
     }
 }

@@ -17,26 +17,19 @@
 package org.bitcoinj.wallet;
 
 import org.bitcoinj.core.*;
-import org.bitcoinj.params.RegTestParams;
-import org.bitcoinj.params.UnitTestParams;
-import org.bitcoinj.testing.FakeTxBuilder;
-import org.bitcoinj.testing.TestWithWallet;
-import org.bitcoinj.wallet.CoinSelection;
-import org.bitcoinj.wallet.DefaultCoinSelector;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.bitcoinj.params.*;
+import org.bitcoinj.testing.*;
+import org.junit.*;
 
-import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.net.*;
+import java.util.*;
 
+import static com.google.common.base.Preconditions.*;
 import static org.bitcoinj.core.Coin.*;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.junit.Assert.*;
 
 public class DefaultCoinSelectorTest extends TestWithWallet {
-    private static final NetworkParameters params = UnitTestParams.get();
+    private static final NetworkParameters PARAMS = UnitTestParams.get();
 
     @Before
     @Override
@@ -54,16 +47,16 @@ public class DefaultCoinSelectorTest extends TestWithWallet {
     @Test
     public void selectable() throws Exception {
         Transaction t;
-        t = new Transaction(params);
+        t = new Transaction(PARAMS);
         t.getConfidence().setConfidenceType(TransactionConfidence.ConfidenceType.PENDING);
         assertFalse(DefaultCoinSelector.isSelectable(t));
         t.getConfidence().setSource(TransactionConfidence.Source.SELF);
         assertFalse(DefaultCoinSelector.isSelectable(t));
-        t.getConfidence().markBroadcastBy(new PeerAddress(InetAddress.getByName("1.2.3.4")));
+        t.getConfidence().markBroadcastBy(new PeerAddress(PARAMS, InetAddress.getByName("1.2.3.4")));
         assertFalse(DefaultCoinSelector.isSelectable(t));
-        t.getConfidence().markBroadcastBy(new PeerAddress(InetAddress.getByName("5.6.7.8")));
+        t.getConfidence().markBroadcastBy(new PeerAddress(PARAMS, InetAddress.getByName("5.6.7.8")));
         assertTrue(DefaultCoinSelector.isSelectable(t));
-        t = new Transaction(params);
+        t = new Transaction(PARAMS);
         t.getConfidence().setConfidenceType(TransactionConfidence.ConfidenceType.BUILDING);
         assertTrue(DefaultCoinSelector.isSelectable(t));
         t = new Transaction(RegTestParams.get());
@@ -80,7 +73,7 @@ public class DefaultCoinSelectorTest extends TestWithWallet {
 
         // Check we selected just the oldest one.
         DefaultCoinSelector selector = new DefaultCoinSelector();
-        CoinSelection selection = selector.select(COIN, wallet.calculateAllSpendCandidates(true));
+        CoinSelection selection = selector.select(COIN, wallet.calculateAllSpendCandidates());
         assertTrue(selection.gathered.contains(t1.getOutputs().get(0)));
         assertEquals(COIN, selection.valueGathered);
 
@@ -99,7 +92,7 @@ public class DefaultCoinSelectorTest extends TestWithWallet {
         // and t3=0.01.
         Transaction t1 = checkNotNull(sendMoneyToWallet(COIN, AbstractBlockChain.NewBlockType.BEST_CHAIN));
         // Padding block.
-        wallet.notifyNewBestBlock(FakeTxBuilder.createFakeBlock(blockStore).storedBlock);
+        wallet.notifyNewBestBlock(FakeTxBuilder.createFakeBlock(blockStore, Block.BLOCK_HEIGHT_GENESIS).storedBlock);
         final Coin TWO_COINS = COIN.multiply(2);
         Transaction t2 = checkNotNull(sendMoneyToWallet(TWO_COINS, AbstractBlockChain.NewBlockType.BEST_CHAIN));
         Transaction t3 = checkNotNull(sendMoneyToWallet(CENT, AbstractBlockChain.NewBlockType.BEST_CHAIN));
@@ -118,12 +111,12 @@ public class DefaultCoinSelectorTest extends TestWithWallet {
     @Test
     public void identicalInputs() throws Exception {
         // Add four outputs to a transaction with same value and destination. Select them all.
-        Transaction t = new Transaction(params);
+        Transaction t = new Transaction(PARAMS);
         java.util.List<TransactionOutput> outputs = Arrays.asList(
-            new TransactionOutput(params, t, Coin.valueOf(30302787), myAddress),
-            new TransactionOutput(params, t, Coin.valueOf(30302787), myAddress),
-            new TransactionOutput(params, t, Coin.valueOf(30302787), myAddress),
-            new TransactionOutput(params, t, Coin.valueOf(30302787), myAddress)
+            new TransactionOutput(PARAMS, t, Coin.valueOf(30302787), myAddress),
+            new TransactionOutput(PARAMS, t, Coin.valueOf(30302787), myAddress),
+            new TransactionOutput(PARAMS, t, Coin.valueOf(30302787), myAddress),
+            new TransactionOutput(PARAMS, t, Coin.valueOf(30302787), myAddress)
         );
         t.getConfidence().setConfidenceType(TransactionConfidence.ConfidenceType.BUILDING);
 

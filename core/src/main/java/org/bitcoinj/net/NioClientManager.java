@@ -17,10 +17,8 @@
 package org.bitcoinj.net;
 
 import com.google.common.base.Throwables;
-import com.google.common.util.concurrent.AbstractExecutionThreadService;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
+import com.google.common.util.concurrent.*;
+import org.bitcoinj.utils.*;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
@@ -29,7 +27,7 @@ import java.net.SocketAddress;
 import java.nio.channels.*;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.*;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 
 /**
  * A class which manages a set of client connections. Uses Java NIO to select network events and processes them in a
@@ -42,11 +40,11 @@ public class NioClientManager extends AbstractExecutionThreadService implements 
 
     class PendingConnect {
         SocketChannel sc;
-        StreamParser parser;
+        StreamConnection connection;
         SocketAddress address;
         SettableFuture<SocketAddress> future = SettableFuture.create();
 
-        PendingConnect(SocketChannel sc, StreamParser parser, SocketAddress address) { this.sc = sc; this.parser = parser; this.address = address; }
+        PendingConnect(SocketChannel sc, StreamConnection connection, SocketAddress address) { this.sc = sc; this.connection = connection; this.address = address; }
     }
     final Queue<PendingConnect> newConnectionChannels = new LinkedBlockingQueue<PendingConnect>();
 
@@ -59,14 +57,14 @@ public class NioClientManager extends AbstractExecutionThreadService implements 
         if (key.isValid() && key.isConnectable()) { // ie a client connection which has finished the initial connect process
             // Create a ConnectionHandler and hook everything together
             PendingConnect data = (PendingConnect) key.attachment();
-            StreamParser parser = data.parser;
+            StreamConnection connection = data.connection;
             SocketChannel sc = (SocketChannel) key.channel();
-            ConnectionHandler handler = new ConnectionHandler(parser, key, connectedHandlers);
+            ConnectionHandler handler = new ConnectionHandler(connection, key, connectedHandlers);
             try {
                 if (sc.finishConnect()) {
-                    log.info("Successfully connected to {}", sc.socket().getRemoteSocketAddress());
+                    log.info("Connected to {}", sc.socket().getRemoteSocketAddress());
                     key.interestOps((key.interestOps() | SelectionKey.OP_READ) & ~SelectionKey.OP_CONNECT).attach(handler);
-                    parser.connectionOpened();
+                    connection.connectionOpened();
                     data.future.set(data.address);
                 } else {
                     log.warn("Failed to connect to {}", sc.socket().getRemoteSocketAddress());
@@ -147,15 +145,15 @@ public class NioClientManager extends AbstractExecutionThreadService implements 
     }
 
     @Override
-    public ListenableFuture<SocketAddress> openConnection(SocketAddress serverAddress, StreamParser parser) {
+    public ListenableFuture<SocketAddress> openConnection(SocketAddress serverAddress, StreamConnection connection) {
         if (!isRunning())
             throw new IllegalStateException();
-        // Create a new connection, give it a parser as an attachment
+        // Create a new connection, give it a connection as an attachment
         try {
             SocketChannel sc = SocketChannel.open();
             sc.configureBlocking(false);
             sc.connect(serverAddress);
-            PendingConnect data = new PendingConnect(sc, parser, serverAddress);
+            PendingConnect data = new PendingConnect(sc, connection, serverAddress);
             newConnectionChannels.offer(data);
             selector.wakeup();
             return data.future;
@@ -184,5 +182,15 @@ public class NioClientManager extends AbstractExecutionThreadService implements 
             if (handler != null)
                 handler.closeConnection(); // Removes handler from connectedHandlers before returning
         }
+    }
+
+    @Override
+    protected Executor executor() {
+        return new Executor() {
+            @Override
+            public void execute(Runnable command) {
+                new ContextPropagatingThreadFactory("NioClientManager").newThread(command).start();
+            }
+        };
     }
 }

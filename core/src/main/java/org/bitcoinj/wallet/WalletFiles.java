@@ -17,19 +17,19 @@
 
 package org.bitcoinj.wallet;
 
-import org.bitcoinj.core.Wallet;
-import org.bitcoinj.utils.Threading;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.bitcoinj.core.*;
+import org.bitcoinj.utils.*;
+import org.slf4j.*;
 
-import javax.annotation.Nonnull;
-import java.io.File;
-import java.io.IOException;
+import com.google.common.base.Stopwatch;
+
+import javax.annotation.*;
+import java.io.*;
+import java.util.Date;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.*;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.*;
 
 /**
  * A class that handles atomic and optionally delayed writing of the wallet file to disk. In future: backups too.
@@ -58,24 +58,22 @@ public class WalletFiles {
          * Called on the auto-save thread when a new temporary file is created but before the wallet data is saved
          * to it. If you want to do something here like adjust permissions, go ahead and do so.
          */
-        public void onBeforeAutoSave(File tempFile);
+        void onBeforeAutoSave(File tempFile);
 
         /**
          * Called on the auto-save thread after the newly created temporary file has been filled with data and renamed.
          */
-        public void onAfterAutoSave(File newlySavedFile);
+        void onAfterAutoSave(File newlySavedFile);
     }
 
+    /**
+     * Initialize atomic and optionally delayed writing of the wallet file to disk. Note the initial wallet state isn't
+     * saved automatically. The {@link Wallet} calls {@link #saveNow()} or {@link #saveLater()} as wallet state changes,
+     * depending on the urgency of the changes.
+     */
     public WalletFiles(final Wallet wallet, File file, long delay, TimeUnit delayTimeUnit) {
-        final ThreadFactoryBuilder builder = new ThreadFactoryBuilder()
-                .setDaemon(true)
-                .setNameFormat("Wallet autosave thread")
-                .setPriority(Thread.MIN_PRIORITY);  // Avoid competing with the GUI thread.
-        Thread.UncaughtExceptionHandler handler = Threading.uncaughtExceptionHandler;
-        if (handler != null)
-            builder.setUncaughtExceptionHandler(handler);
         // An executor that starts up threads when needed and shuts them down later.
-        this.executor = new ScheduledThreadPoolExecutor(1, builder.build());
+        this.executor = new ScheduledThreadPoolExecutor(1, new ContextPropagatingThreadFactory("Wallet autosave thread", Thread.MIN_PRIORITY));
         this.executor.setKeepAliveTime(5, TimeUnit.SECONDS);
         this.executor.allowCoreThreadTimeOut(true);
         this.executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
@@ -93,7 +91,11 @@ public class WalletFiles {
                     // Some other scheduled request already beat us to it.
                     return null;
                 }
-                log.info("Background saving wallet, last seen block is {}/{}", wallet.getLastBlockSeenHeight(), wallet.getLastBlockSeenHash());
+                Date lastBlockSeenTime = wallet.getLastBlockSeenTime();
+                log.info("Background saving wallet; last seen block is height {}, date {}, hash {}",
+                        wallet.getLastBlockSeenHeight(),
+                        lastBlockSeenTime != null ? Utils.dateTimeFormat(lastBlockSeenTime) : "unknown",
+                        wallet.getLastBlockSeenHash());
                 saveNowInternal();
                 return null;
             }
@@ -111,12 +113,15 @@ public class WalletFiles {
     public void saveNow() throws IOException {
         // Can be called by any thread. However the wallet is locked whilst saving, so we can have two saves in flight
         // but they will serialize (using different temp files).
-        log.info("Saving wallet, last seen block is {}/{}", wallet.getLastBlockSeenHeight(), wallet.getLastBlockSeenHash());
+        Date lastBlockSeenTime = wallet.getLastBlockSeenTime();
+        log.info("Saving wallet; last seen block is height {}, date {}, hash {}", wallet.getLastBlockSeenHeight(),
+                lastBlockSeenTime != null ? Utils.dateTimeFormat(lastBlockSeenTime) : "unknown",
+                wallet.getLastBlockSeenHash());
         saveNowInternal();
     }
 
     private void saveNowInternal() throws IOException {
-        long now = System.currentTimeMillis();
+        final Stopwatch watch = Stopwatch.createStarted();
         File directory = file.getAbsoluteFile().getParentFile();
         File temp = File.createTempFile("wallet", null, directory);
         final Listener listener = vListener;
@@ -125,7 +130,8 @@ public class WalletFiles {
         wallet.saveToFile(temp, file);
         if (listener != null)
             listener.onAfterAutoSave(file);
-        log.info("Save completed in {}msec", System.currentTimeMillis() - now);
+        watch.stop();
+        log.info("Save completed in {}", watch);
     }
 
     /** Queues up a save in the background. Useful for not very important wallet changes. */

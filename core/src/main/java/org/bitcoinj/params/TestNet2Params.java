@@ -16,7 +16,6 @@
 
 package org.bitcoinj.params;
 
-import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Utils;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -25,7 +24,11 @@ import static com.google.common.base.Preconditions.checkState;
  * Parameters for the old version 2 testnet. This is not useful to you - it exists only because some unit tests are
  * based on it.
  */
-public class TestNet2Params extends NetworkParameters {
+public class TestNet2Params extends AbstractBitcoinNetParams {
+    public static final int TESTNET_MAJORITY_WINDOW = 100;
+    public static final int TESTNET_MAJORITY_REJECT_BLOCK_OUTDATED = 75;
+    public static final int TESTNET_MAJORITY_ENFORCE_BLOCK_UPGRADE = 51;
+
     public TestNet2Params() {
         super();
         id = ID_TESTNET;
@@ -46,8 +49,13 @@ public class TestNet2Params extends NetworkParameters {
         String genesisHash = genesisBlock.getHashAsString();
         checkState(genesisHash.equals("00000007199508e34a9ff81e6ec0c477a4cccff2a4767a8eee39c11db367b008"));
         dnsSeeds = null;
+        addrSeeds = null;
         bip32HeaderPub = 0x043587CF;
         bip32HeaderPriv = 0x04358394;
+
+        majorityEnforceBlockUpgrade = TESTNET_MAJORITY_ENFORCE_BLOCK_UPGRADE;
+        majorityRejectBlockOutdated = TESTNET_MAJORITY_REJECT_BLOCK_OUTDATED;
+        majorityWindow = TESTNET_MAJORITY_WINDOW;
     }
 
     private static TestNet2Params instance;

@@ -17,43 +17,33 @@
 
 package org.bitcoinj.core;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.net.InetAddresses;
-import com.google.common.primitives.Ints;
-import com.google.common.primitives.Longs;
+import com.google.common.annotations.*;
+import com.google.common.base.*;
+import com.google.common.collect.*;
+import com.google.common.net.*;
+import com.google.common.primitives.*;
 import com.google.common.util.concurrent.*;
-import com.subgraph.orchid.TorClient;
-import net.jcip.annotations.GuardedBy;
-import org.bitcoinj.crypto.DRMWorkaround;
-import org.bitcoinj.net.BlockingClientManager;
-import org.bitcoinj.net.ClientConnectionManager;
-import org.bitcoinj.net.FilterMerger;
-import org.bitcoinj.net.NioClientManager;
-import org.bitcoinj.net.discovery.PeerDiscovery;
-import org.bitcoinj.net.discovery.PeerDiscoveryException;
-import org.bitcoinj.net.discovery.TorDiscovery;
-import org.bitcoinj.script.Script;
-import org.bitcoinj.utils.DaemonThreadFactory;
-import org.bitcoinj.utils.ExponentialBackoff;
-import org.bitcoinj.utils.ListenerRegistration;
+import com.squareup.okhttp.*;
+import com.subgraph.orchid.*;
+import net.jcip.annotations.*;
+import org.bitcoinj.core.listeners.*;
+import org.bitcoinj.crypto.*;
+import org.bitcoinj.net.*;
+import org.bitcoinj.net.discovery.*;
+import org.bitcoinj.script.*;
+import org.bitcoinj.utils.*;
 import org.bitcoinj.utils.Threading;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.slf4j.*;
 
-import javax.annotation.Nullable;
-import java.io.IOException;
+import javax.annotation.*;
+import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.*;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Preconditions.*;
+import org.bitcoinj.wallet.KeyChainEventListener;
 
 /**
  * <p>Runs a set of connections to the P2P network, brings up connections to replace disconnected nodes and manages
@@ -69,21 +59,37 @@ import static com.google.common.base.Preconditions.checkState;
  * <p>The PeerGroup can broadcast a transaction to the currently connected set of peers.  It can
  * also handle download of the blockchain from peers, restarting the process when peers die.</p>
  *
- * <p>PeerGroup implements the {@link Service} interface. This means before it will do anything,
- * you must call the {@link com.google.common.util.concurrent.Service#start()} method (which returns
- * a future) or {@link com.google.common.util.concurrent.Service#startAndWait()} method, which will block
- * until peer discovery is completed and some outbound connections have been initiated (it will return
- * before handshaking is done, however). You should call {@link com.google.common.util.concurrent.Service#stop()}
- * when finished. Note that not all methods of PeerGroup are safe to call from a UI thread as some may do
- * network IO, but starting and stopping the service should be fine.</p>
+ * <p>A PeerGroup won't do anything until you call the {@link PeerGroup#start()} method 
+ * which will block until peer discovery is completed and some outbound connections 
+ * have been initiated (it will return before handshaking is done, however). 
+ * You should call {@link PeerGroup#stop()} when finished. Note that not all methods
+ * of PeerGroup are safe to call from a UI thread as some may do network IO, 
+ * but starting and stopping the service should be fine.</p>
  */
 public class PeerGroup implements TransactionBroadcaster {
     private static final Logger log = LoggerFactory.getLogger(PeerGroup.class);
-    private static final int DEFAULT_CONNECTIONS = 4;
+
+    // All members in this class should be marked with final, volatile, @GuardedBy or a mix as appropriate to define
+    // their thread safety semantics. Volatile requires a Hungarian-style v prefix.
+
+    // By default we don't require any services because any peer will do.
+    private long requiredServices = 0;
+    /**
+     * The default number of connections to the p2p network the library will try to build. This is set to 12 empirically.
+     * It used to be 4, but because we divide the connection pool in two for broadcasting transactions, that meant we
+     * were only sending transactions to two peers and sometimes this wasn't reliable enough: transactions wouldn't
+     * get through.
+     */
+    public static final int DEFAULT_CONNECTIONS = 12;
     private static final int TOR_TIMEOUT_SECONDS = 60;
-    private int vMaxPeersToDiscoverCount = 100;
+    private volatile int vMaxPeersToDiscoverCount = 100;
+    private static final long DEFAULT_PEER_DISCOVERY_TIMEOUT_MILLIS = 5000;
+    private volatile long vPeerDiscoveryTimeoutMillis = DEFAULT_PEER_DISCOVERY_TIMEOUT_MILLIS;
 
     protected final ReentrantLock lock = Threading.lock("peergroup");
+
+    protected final NetworkParameters params;
+    @Nullable protected final AbstractBlockChain chain;
 
     // This executor is used to queue up jobs: it's used when we don't want to use locks for mutual exclusion,
     // typically because the job might call in to user provided code that needs/wants the freedom to use the API
@@ -108,70 +114,69 @@ public class PeerGroup implements TransactionBroadcaster {
 
     // The peer that has been selected for the purposes of downloading announced data.
     @GuardedBy("lock") private Peer downloadPeer;
-    // Callback for events related to chain download
-    @Nullable @GuardedBy("lock") private PeerEventListener downloadListener;
-    // Callbacks for events related to peer connection/disconnection
-    private final CopyOnWriteArrayList<ListenerRegistration<PeerEventListener>> peerEventListeners;
+    // Callback for events related to chain download.
+    @Nullable @GuardedBy("lock") private PeerDataEventListener downloadListener;
+    private final CopyOnWriteArrayList<ListenerRegistration<BlocksDownloadedEventListener>> peersBlocksDownloadedEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<BlocksDownloadedEventListener>>();
+    private final CopyOnWriteArrayList<ListenerRegistration<ChainDownloadStartedEventListener>> peersChainDownloadStartedEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<ChainDownloadStartedEventListener>>();
+    /** Callbacks for events related to peers connecting */
+    protected final CopyOnWriteArrayList<ListenerRegistration<PeerConnectedEventListener>> peerConnectedEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<PeerConnectedEventListener>>();
+    /** Callbacks for events related to peer connection/disconnection */
+    protected final CopyOnWriteArrayList<ListenerRegistration<PeerDiscoveredEventListener>> peerDiscoveredEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<PeerDiscoveredEventListener>>();
+    /** Callbacks for events related to peers disconnecting */
+    protected final CopyOnWriteArrayList<ListenerRegistration<PeerDisconnectedEventListener>> peerDisconnectedEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<PeerDisconnectedEventListener>>();
+    /** Callbacks for events related to peer data being received */
+    private final CopyOnWriteArrayList<ListenerRegistration<GetDataEventListener>> peerGetDataEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<GetDataEventListener>>();
+    private final CopyOnWriteArrayList<ListenerRegistration<PreMessageReceivedEventListener>> peersPreMessageReceivedEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<PreMessageReceivedEventListener>>();
+    protected final CopyOnWriteArrayList<ListenerRegistration<OnTransactionBroadcastListener>> peersTransactionBroadastEventListeners
+        = new CopyOnWriteArrayList<ListenerRegistration<OnTransactionBroadcastListener>>();
     // Peer discovery sources, will be polled occasionally if there aren't enough inactives.
     private final CopyOnWriteArraySet<PeerDiscovery> peerDiscoverers;
     // The version message to use for new connections.
     @GuardedBy("lock") private VersionMessage versionMessage;
-    // Switch for enabling download of pending transaction dependencies.
-    @GuardedBy("lock") private boolean downloadTxDependencies;
+    // Maximum depth up to which pending transaction dependencies are downloaded, or 0 for disabled.
+    @GuardedBy("lock") private int downloadTxDependencyDepth;
     // How many connections we want to have open at the current time. If we lose connections, we'll try opening more
     // until we reach this count.
     @GuardedBy("lock") private int maxConnections;
     // Minimum protocol version we will allow ourselves to connect to: require Bloom filtering.
-    private volatile int vMinRequiredProtocolVersion = FilteredBlock.MIN_PROTOCOL_VERSION;
+    private volatile int vMinRequiredProtocolVersion;
 
-    // Runs a background thread that we use for scheduling pings to our peers, so we can measure their performance
-    // and network latency. We ping peers every pingIntervalMsec milliseconds.
-    private volatile Timer vPingTimer;
     /** How many milliseconds to wait after receiving a pong before sending another ping. */
     public static final long DEFAULT_PING_INTERVAL_MSEC = 2000;
-    private long pingIntervalMsec = DEFAULT_PING_INTERVAL_MSEC;
+    @GuardedBy("lock") private long pingIntervalMsec = DEFAULT_PING_INTERVAL_MSEC;
 
     @GuardedBy("lock") private boolean useLocalhostPeerWhenPossible = true;
     @GuardedBy("lock") private boolean ipv6Unreachable = false;
 
-    private final NetworkParameters params;
-    @Nullable private final AbstractBlockChain chain;
     @GuardedBy("lock") private long fastCatchupTimeSecs;
     private final CopyOnWriteArrayList<Wallet> wallets;
     private final CopyOnWriteArrayList<PeerFilterProvider> peerFilterProviders;
 
     // This event listener is added to every peer. It's here so when we announce transactions via an "inv", every
     // peer can fetch them.
-    private final AbstractPeerEventListener peerListener = new AbstractPeerEventListener() {
-        @Override
-        public List<Message> getData(Peer peer, GetDataMessage m) {
-            return handleGetData(m);
-        }
-
-        @Override
-        public void onBlocksDownloaded(Peer peer, Block block, int blocksLeft) {
-            if (chain == null) return;
-            final double rate = chain.getFalsePositiveRate();
-            final double target = bloomFilterMerger.getBloomFilterFPRate() * MAX_FP_RATE_INCREASE;
-            if (rate > target) {
-                // TODO: Avoid hitting this path if the remote peer didn't acknowledge applying a new filter yet.
-                if (log.isDebugEnabled())
-                    log.debug("Force update Bloom filter due to high false positive rate ({} vs {})", rate, target);
-                recalculateFastCatchupAndFilter(FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
-            }
-        }
-    };
+    private final PeerListener peerListener = new PeerListener();
 
     private int minBroadcastConnections = 0;
-    private final AbstractWalletEventListener walletEventListener = new AbstractWalletEventListener() {
+    private final ScriptsChangeEventListener walletScriptEventListener = new ScriptsChangeEventListener() {
         @Override public void onScriptsChanged(Wallet wallet, List<Script> scripts, boolean isAddingScripts) {
             recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
         }
+    };
 
+    private final KeyChainEventListener walletKeyEventListener = new KeyChainEventListener() {
         @Override public void onKeysAdded(List<ECKey> keys) {
             recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
         }
+    };
 
+    private final WalletCoinsReceivedEventListener walletCoinsReceivedEventListener = new WalletCoinsReceivedEventListener() {
         @Override
         public void onCoinsReceived(Wallet wallet, Transaction tx, Coin prevBalance, Coin newBalance) {
             // We received a relevant transaction. We MAY need to recalculate and resend the Bloom filter, but only
@@ -209,7 +214,7 @@ public class PeerGroup implements TransactionBroadcaster {
     };
 
     // Exponential backoff for peers starts at 1 second and maxes at 10 minutes.
-    private ExponentialBackoff.Params peerBackoffParams = new ExponentialBackoff.Params(1000, 1.5f, 10 * 60 * 1000);
+    private final ExponentialBackoff.Params peerBackoffParams = new ExponentialBackoff.Params(1000, 1.5f, 10 * 60 * 1000);
     // Tracks failures globally in case of a network failure.
     @GuardedBy("lock") private ExponentialBackoff groupBackoff = new ExponentialBackoff(new ExponentialBackoff.Params(1000, 1.5f, 10 * 1000));
 
@@ -218,7 +223,31 @@ public class PeerGroup implements TransactionBroadcaster {
     // in broadcastTransaction.
     private final Set<TransactionBroadcast> runningBroadcasts;
 
-    private class PeerStartupListener extends AbstractPeerEventListener {
+    private class PeerListener implements GetDataEventListener, BlocksDownloadedEventListener {
+
+        public PeerListener() {
+        }
+
+        @Override
+        public List<Message> getData(Peer peer, GetDataMessage m) {
+            return handleGetData(m);
+        }
+
+        @Override
+        public void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
+            if (chain == null) return;
+            final double rate = chain.getFalsePositiveRate();
+            final double target = bloomFilterMerger.getBloomFilterFPRate() * MAX_FP_RATE_INCREASE;
+            if (rate > target) {
+                // TODO: Avoid hitting this path if the remote peer didn't acknowledge applying a new filter yet.
+                if (log.isDebugEnabled())
+                    log.debug("Force update Bloom filter due to high false positive rate ({} vs {})", rate, target);
+                recalculateFastCatchupAndFilter(FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
+            }
+        }
+    }
+
+    private class PeerStartupListener implements PeerConnectedEventListener, PeerDisconnectedEventListener {
         @Override
         public void onPeerConnected(Peer peer, int peerCount) {
             handleNewPeer(peer);
@@ -231,19 +260,19 @@ public class PeerGroup implements TransactionBroadcaster {
         }
     }
 
-    @VisibleForTesting
-    PeerEventListener startupListener = new PeerStartupListener();
+    private final PeerStartupListener startupListener = new PeerStartupListener();
 
     /**
-     * <p>A reasonable default for the bloom filter false positive rate on mainnet. FP rates are values between 0.0 and 1.0
-     * where 1.0 is "all transactions" i.e. 100%.</p>
-     *
-     * <p>Users for which low data usage is of utmost concern, 0.0001 may be better, for users
-     * to whom anonymity is of utmost concern, 0.001 (0.1%) should provide very good privacy.</p>
+     * The default Bloom filter false positive rate, which is selected to be extremely low such that you hardly ever
+     * download false positives. This provides maximum performance. Although this default can be overridden to push
+     * the FP rate higher, due to <a href="https://groups.google.com/forum/#!msg/bitcoinj/Ys13qkTwcNg/9qxnhwnkeoIJ">
+     * various complexities</a> there are still ways a remote peer can deanonymize the users wallet. This is why the
+     * FP rate is chosen for performance rather than privacy. If a future version of bitcoinj fixes the known
+     * de-anonymization attacks this FP rate may rise again (or more likely, become expressed as a bandwidth allowance).
      */
-    public static final double DEFAULT_BLOOM_FILTER_FP_RATE = 0.0005;
+    public static final double DEFAULT_BLOOM_FILTER_FP_RATE = 0.00001;
     /** Maximum increase in FP rate before forced refresh of the bloom filter */
-    public static final double MAX_FP_RATE_INCREASE = 2.0f;
+    public static final double MAX_FP_RATE_INCREASE = 10.0f;
     // An object that calculates bloom filters given a list of filter providers, whilst tracking some state useful
     // for privacy purposes.
     private final FilterMerger bloomFilterMerger;
@@ -251,25 +280,40 @@ public class PeerGroup implements TransactionBroadcaster {
     /** The default timeout between when a connection attempt begins and version message exchange completes */
     public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 5000;
     private volatile int vConnectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
+    
+    /** Whether bloom filter support is enabled when using a non FullPrunedBlockchain*/
+    private volatile boolean vBloomFilteringEnabled = true;
 
-    /**
-     * Creates a PeerGroup with the given parameters. No chain is provided so this node will report its chain height
-     * as zero to other peers. This constructor is useful if you just want to explore the network but aren't interested
-     * in downloading block data.
-     *
-     * @param params Network parameters
-     */
-
+    /** See {@link #PeerGroup(Context)} */
     public PeerGroup(NetworkParameters params) {
         this(params, null);
     }
 
     /**
-     * Creates a PeerGroup for the given network and chain. Blocks will be passed to the chain as they are broadcast
+     * Creates a PeerGroup with the given context. No chain is provided so this node will report its chain height
+     * as zero to other peers. This constructor is useful if you just want to explore the network but aren't interested
+     * in downloading block data.
+     */
+    public PeerGroup(Context context) {
+        this(context, null);
+    }
+
+    /** See {@link #PeerGroup(Context, AbstractBlockChain)} */
+    public PeerGroup(NetworkParameters params, @Nullable AbstractBlockChain chain) {
+        this(Context.getOrCreate(params), chain, new NioClientManager());
+    }
+
+    /**
+     * Creates a PeerGroup for the given context and chain. Blocks will be passed to the chain as they are broadcast
      * and downloaded. This is probably the constructor you want to use.
      */
-    public PeerGroup(NetworkParameters params, @Nullable AbstractBlockChain chain) {
-        this(params, chain, new NioClientManager());
+    public PeerGroup(Context context, @Nullable AbstractBlockChain chain) {
+        this(context, chain, new NioClientManager());
+    }
+
+    /** See {@link #newWithTor(Context, AbstractBlockChain, TorClient)} */
+    public static PeerGroup newWithTor(NetworkParameters params, @Nullable AbstractBlockChain chain, TorClient torClient) throws TimeoutException {
+        return newWithTor(Context.getOrCreate(params), chain, torClient);
     }
 
     /**
@@ -284,34 +328,73 @@ public class PeerGroup implements TransactionBroadcaster {
      * <p>The user does not need any additional software for this: it's all pure Java. As of April 2014 <b>this mode
      * is experimental</b>.</p>
      *
+     * @throws TimeoutException if Tor fails to start within 20 seconds.
+     */
+    public static PeerGroup newWithTor(Context context, @Nullable AbstractBlockChain chain, TorClient torClient) throws TimeoutException {
+        return newWithTor(context, chain, torClient, true);
+    }
+
+    /**
+     * <p>Creates a PeerGroup that accesses the network via the Tor network. The provided TorClient is used so you can
+     * preconfigure it beforehand. It should not have been already started. You can just use "new TorClient()" if
+     * you don't have any particular configuration requirements.</p>
+     *
+     * <p>If running on the Oracle JDK the unlimited strength jurisdiction checks will also be overridden,
+     * as they no longer apply anyway and can cause startup failures due to the requirement for AES-256.</p>
+     *
+     * <p>The user does not need any additional software for this: it's all pure Java. As of April 2014 <b>this mode
+     * is experimental</b>.</p>
+     *
+     * @param doDiscovery if true, DNS or HTTP peer discovery will be performed via Tor: this is almost always what you want.
      * @throws java.util.concurrent.TimeoutException if Tor fails to start within 20 seconds.
      */
-    public static PeerGroup newWithTor(NetworkParameters params, @Nullable AbstractBlockChain chain, TorClient torClient) throws TimeoutException {
+    public static PeerGroup newWithTor(Context context, @Nullable AbstractBlockChain chain, TorClient torClient, boolean doDiscovery) throws TimeoutException {
         checkNotNull(torClient);
         DRMWorkaround.maybeDisableExportControls();
         BlockingClientManager manager = new BlockingClientManager(torClient.getSocketFactory());
         final int CONNECT_TIMEOUT_MSEC = TOR_TIMEOUT_SECONDS * 1000;
         manager.setConnectTimeoutMillis(CONNECT_TIMEOUT_MSEC);
-        PeerGroup result = new PeerGroup(params, chain, manager, torClient);
+        PeerGroup result = new PeerGroup(context, chain, manager, torClient);
         result.setConnectTimeoutMillis(CONNECT_TIMEOUT_MSEC);
-        result.addPeerDiscovery(new TorDiscovery(params, torClient));
+
+        if (doDiscovery) {
+            NetworkParameters params = context.getParams();
+            HttpDiscovery.Details[] httpSeeds = params.getHttpSeeds();
+            if (httpSeeds.length > 0) {
+                // Use HTTP discovery when Tor is active and there is a Cartographer seed, for a much needed speed boost.
+                OkHttpClient httpClient = new OkHttpClient();
+                httpClient.setSocketFactory(torClient.getSocketFactory());
+                List<PeerDiscovery> discoveries = Lists.newArrayList();
+                for (HttpDiscovery.Details httpSeed : httpSeeds)
+                    discoveries.add(new HttpDiscovery(params, httpSeed, httpClient));
+                result.addPeerDiscovery(new MultiplexingDiscovery(params, discoveries));
+            } else {
+                result.addPeerDiscovery(new TorDiscovery(params, torClient));
+            }
+        }
         return result;
     }
 
-    /**
-     * Creates a new PeerGroup allowing you to specify the {@link ClientConnectionManager} which is used to create new
-     * connections and keep track of existing ones.
-     */
+    /** See {@link #PeerGroup(Context, AbstractBlockChain, ClientConnectionManager)} */
     public PeerGroup(NetworkParameters params, @Nullable AbstractBlockChain chain, ClientConnectionManager connectionManager) {
-        this(params, chain, connectionManager, null);
+        this(Context.getOrCreate(params), chain, connectionManager, null);
     }
 
     /**
      * Creates a new PeerGroup allowing you to specify the {@link ClientConnectionManager} which is used to create new
      * connections and keep track of existing ones.
      */
-    private PeerGroup(NetworkParameters params, @Nullable AbstractBlockChain chain, ClientConnectionManager connectionManager, @Nullable TorClient torClient) {
-        this.params = checkNotNull(params);
+    public PeerGroup(Context context, @Nullable AbstractBlockChain chain, ClientConnectionManager connectionManager) {
+        this(context, chain, connectionManager, null);
+    }
+
+    /**
+     * Creates a new PeerGroup allowing you to specify the {@link ClientConnectionManager} which is used to create new
+     * connections and keep track of existing ones.
+     */
+    private PeerGroup(Context context, @Nullable AbstractBlockChain chain, ClientConnectionManager connectionManager, @Nullable TorClient torClient) {
+        checkNotNull(context);
+        this.params = context.getParams();
         this.chain = chain;
         fastCatchupTimeSecs = params.getGenesisBlock().getTimeSeconds();
         wallets = new CopyOnWriteArrayList<Wallet>();
@@ -330,7 +413,7 @@ public class PeerGroup implements TransactionBroadcaster {
         // We never request that the remote node wait for a bloom filter yet, as we have no wallets
         versionMessage.relayTxesBeforeFilter = true;
 
-        downloadTxDependencies = true;
+        downloadTxDependencyDepth = Integer.MAX_VALUE;
 
         inactives = new PriorityQueue<PeerAddress>(1, new Comparator<PeerAddress>() {
             @SuppressWarnings("FieldAccessNotGuarded")   // only called when inactives is accessed, and lock is held then.
@@ -349,16 +432,16 @@ public class PeerGroup implements TransactionBroadcaster {
         pendingPeers = new CopyOnWriteArrayList<Peer>();
         channels = connectionManager;
         peerDiscoverers = new CopyOnWriteArraySet<PeerDiscovery>();
-        peerEventListeners = new CopyOnWriteArrayList<ListenerRegistration<PeerEventListener>>();
         runningBroadcasts = Collections.synchronizedSet(new HashSet<TransactionBroadcast>());
         bloomFilterMerger = new FilterMerger(DEFAULT_BLOOM_FILTER_FP_RATE);
+        vMinRequiredProtocolVersion = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
     }
 
     private CountDownLatch executorStartupLatch = new CountDownLatch(1);
 
     protected ListeningScheduledExecutorService createPrivateExecutor() {
         ListeningScheduledExecutorService result = MoreExecutors.listeningDecorator(
-                new ScheduledThreadPoolExecutor(1, new DaemonThreadFactory("PeerGroup Thread"))
+                new ScheduledThreadPoolExecutor(1, new ContextPropagatingThreadFactory("PeerGroup Thread"))
         );
         // Hack: jam the executor so jobs just queue up until the user calls start() on us. For example, adding a wallet
         // results in a bloom filter recalc being queued, but we don't want to do that until we're actually started.
@@ -369,6 +452,13 @@ public class PeerGroup implements TransactionBroadcaster {
             }
         });
         return result;
+    }
+
+    /**
+     * This is how many milliseconds we wait for peer discoveries to return their results.
+     */
+    public void setPeerDiscoveryTimeoutMillis(long peerDiscoveryTimeoutMillis) {
+        this.vPeerDiscoveryTimeoutMillis = peerDiscoveryTimeoutMillis;
     }
 
     /**
@@ -395,13 +485,13 @@ public class PeerGroup implements TransactionBroadcaster {
     }
 
     /**
-     * Switch for enabling download of pending transaction dependencies. A change of value only takes effect for newly
-     * connected peers.
+     * Configure download of pending transaction dependencies. A change of values only takes effect for newly connected
+     * peers.
      */
-    public void setDownloadTxDependencies(boolean downloadTxDependencies) {
+    public void setDownloadTxDependencies(int depth) {
         lock.lock();
         try {
-            this.downloadTxDependencies = downloadTxDependencies;
+            this.downloadTxDependencyDepth = depth;
         } finally {
             lock.unlock();
         }
@@ -409,6 +499,7 @@ public class PeerGroup implements TransactionBroadcaster {
 
     private Runnable triggerConnectionsJob = new Runnable() {
         private boolean firstRun = true;
+        private final static long MIN_PEER_DISCOVERY_INTERVAL = 1000L;
 
         @Override
         public void run() {
@@ -458,7 +549,9 @@ public class PeerGroup implements TransactionBroadcaster {
             lock.lock();
             try {
                 if (doDiscovery) {
-                    if (discoverySuccess) {
+                    // Require that we have enough connections, to consider this
+                    // a success, or we just constantly test for new peers
+                    if (discoverySuccess && countConnectedAndPendingPeers() >= getMaxConnections()) {
                         groupBackoff.trackSuccess();
                     } else {
                         groupBackoff.trackFailure();
@@ -467,8 +560,10 @@ public class PeerGroup implements TransactionBroadcaster {
                 // Inactives is sorted by backoffMap time.
                 if (inactives.isEmpty()) {
                     if (countConnectedAndPendingPeers() < getMaxConnections()) {
-                        log.info("Peer discovery didn't provide us any more peers, will try again later.");
-                        executor.schedule(this, groupBackoff.getRetryTime() - now, TimeUnit.MILLISECONDS);
+                        long interval = Math.max(groupBackoff.getRetryTime() - now, MIN_PEER_DISCOVERY_INTERVAL);
+                        log.info("Peer discovery didn't provide us any more peers, will try again in "
+                            + interval + "ms.");
+                        executor.schedule(this, interval, TimeUnit.MILLISECONDS);
                     } else {
                         // We have enough peers and discovery provided no more, so just settle down. Most likely we
                         // were given a fixed set of addresses in some test scenario.
@@ -500,7 +595,8 @@ public class PeerGroup implements TransactionBroadcaster {
 
     private void triggerConnections() {
         // Run on a background thread due to the need to potentially retry and back off in the background.
-        executor.execute(triggerConnectionsJob);
+        if (!executor.isShutdown())
+            executor.execute(triggerConnectionsJob);
     }
 
     /** The maximum number of connections that we will create to peers. */
@@ -523,20 +619,13 @@ public class PeerGroup implements TransactionBroadcaster {
             Iterator<InventoryItem> it = items.iterator();
             while (it.hasNext()) {
                 InventoryItem item = it.next();
-                // Check the confidence pool first.
-                Transaction tx = chain != null ? chain.getContext().getConfidenceTable().get(item.hash) : null;
-                if (tx != null) {
+                // Check the wallets.
+                for (Wallet w : wallets) {
+                    Transaction tx = w.getTransaction(item.hash);
+                    if (tx == null) continue;
                     transactions.add(tx);
                     it.remove();
-                } else {
-                    // Check the wallets.
-                    for (Wallet w : wallets) {
-                        tx = w.getTransaction(item.hash);
-                        if (tx == null) continue;
-                        transactions.add(tx);
-                        it.remove();
-                        break;
-                    }
+                    break;
                 }
             }
             return transactions;
@@ -594,12 +683,12 @@ public class PeerGroup implements TransactionBroadcaster {
     // Updates the relayTxesBeforeFilter flag of ver
     private void updateVersionMessageRelayTxesBeforeFilter(VersionMessage ver) {
         // We will provide the remote node with a bloom filter (ie they shouldn't relay yet)
-        // iff chain == null || !chain.shouldVerifyTransactions() and a wallet is added
+        // if chain == null || !chain.shouldVerifyTransactions() and a wallet is added and bloom filters are enabled
         // Note that the default here means that no tx invs will be received if no wallet is ever added
         lock.lock();
         try {
             boolean spvMode = chain != null && !chain.shouldVerifyTransactions();
-            boolean willSendFilter = spvMode && peerFilterProviders.size() > 0;
+            boolean willSendFilter = spvMode && peerFilterProviders.size() > 0 && vBloomFilteringEnabled;
             ver.relayTxesBeforeFilter = !willSendFilter;
         } finally {
             lock.unlock();
@@ -616,50 +705,240 @@ public class PeerGroup implements TransactionBroadcaster {
         setUserAgent(name, version, null);
     }
 
+    /** Use the more specific listener methods instead */
+    @Deprecated @SuppressWarnings("deprecation")
+    public void addEventListener(AbstractPeerEventListener listener, Executor executor) {
+        addBlocksDownloadedEventListener(Threading.USER_THREAD, listener);
+        addChainDownloadStartedEventListener(Threading.USER_THREAD, listener);
+        addConnectedEventListener(Threading.USER_THREAD, listener);
+        addDisconnectedEventListener(Threading.USER_THREAD, listener);
+        addDiscoveredEventListener(Threading.USER_THREAD, listener);
+        addGetDataEventListener(Threading.USER_THREAD, listener);
+        addOnTransactionBroadcastListener(Threading.USER_THREAD, listener);
+        addPreMessageReceivedEventListener(Threading.USER_THREAD, listener);
+    }
 
-    /**
-     * <p>Adds a listener that will be notified on the given executor when:</p>
-     * <ol>
-     *     <li>New peers are connected to.</li>
-     *     <li>Peers are disconnected from.</li>
-     *     <li>A message is received by the download peer (there is always one peer which is elected as a peer which
-     *     will be used to retrieve data).
-     *     <li>Blocks are downloaded by the download peer.</li>
-     *     </li>
-     * </ol>
-     */
-    public void addEventListener(PeerEventListener listener, Executor executor) {
-        peerEventListeners.add(new ListenerRegistration<PeerEventListener>(checkNotNull(listener), executor));
-        for (Peer peer : getConnectedPeers())
-            peer.addEventListener(listener, executor);
-        for (Peer peer: getPendingPeers())
-            peer.addEventListener(listener, executor);
+    /** Use the more specific listener methods instead */
+    @Deprecated @SuppressWarnings("deprecation")
+    public void addEventListener(AbstractPeerEventListener listener) {
+        addBlocksDownloadedEventListener(executor, listener);
+        addChainDownloadStartedEventListener(executor, listener);
+        addConnectedEventListener(executor, listener);
+        addDisconnectedEventListener(executor, listener);
+        addDiscoveredEventListener(executor, listener);
+        addGetDataEventListener(executor, listener);
+        addOnTransactionBroadcastListener(executor, listener);
+        addPreMessageReceivedEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addBlocksDownloadedEventListener(BlocksDownloadedEventListener)} */
+    public void addBlocksDownloadedEventListener(BlocksDownloadedEventListener listener) {
+        addBlocksDownloadedEventListener(Threading.USER_THREAD, listener);
     }
 
     /**
-     * Same as {@link PeerGroup#addEventListener(PeerEventListener, java.util.concurrent.Executor)} but defaults
-     * to running on the user thread.
+     * <p>Adds a listener that will be notified on the given executor when
+     * blocks are downloaded by the download peer.</p>
+     * @see Peer#addBlocksDownloadedEventListener(Executor, BlocksDownloadedEventListener)
      */
-    public void addEventListener(PeerEventListener listener) {
-        addEventListener(listener, Threading.USER_THREAD);
-    }
-
-    /** The given event listener will no longer be called with events. */
-    public boolean removeEventListener(PeerEventListener listener) {
-        boolean result = ListenerRegistration.removeFromList(listener, peerEventListeners);
+    public void addBlocksDownloadedEventListener(Executor executor, BlocksDownloadedEventListener listener) {
+        peersBlocksDownloadedEventListeners.add(new ListenerRegistration<BlocksDownloadedEventListener>(checkNotNull(listener), executor));
         for (Peer peer : getConnectedPeers())
-            peer.removeEventListener(listener);
+            peer.addBlocksDownloadedEventListener(executor, listener);
         for (Peer peer : getPendingPeers())
-            peer.removeEventListener(listener);
+            peer.addBlocksDownloadedEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addBlocksDownloadedEventListener(BlocksDownloadedEventListener)} */
+    public void addChainDownloadStartedEventListener(ChainDownloadStartedEventListener listener) {
+        addChainDownloadStartedEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /**
+     * <p>Adds a listener that will be notified on the given executor when
+     * chain download starts.</p>
+     */
+    public void addChainDownloadStartedEventListener(Executor executor, ChainDownloadStartedEventListener listener) {
+        peersChainDownloadStartedEventListeners.add(new ListenerRegistration<ChainDownloadStartedEventListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addChainDownloadStartedEventListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addChainDownloadStartedEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addConnectedEventListener(PeerConnectedEventListener)} */
+    public void addConnectedEventListener(PeerConnectedEventListener listener) {
+        addConnectedEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /**
+     * <p>Adds a listener that will be notified on the given executor when
+     * new peers are connected to.</p>
+     */
+    public void addConnectedEventListener(Executor executor, PeerConnectedEventListener listener) {
+        peerConnectedEventListeners.add(new ListenerRegistration<PeerConnectedEventListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addConnectedEventListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addConnectedEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addDisconnectedEventListener(PeerDisconnectedEventListener)} */
+    public void addDisconnectedEventListener(PeerDisconnectedEventListener listener) {
+        addDisconnectedEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /**
+     * <p>Adds a listener that will be notified on the given executor when
+     * peers are disconnected from.</p>
+     */
+    public void addDisconnectedEventListener(Executor executor, PeerDisconnectedEventListener listener) {
+        peerDisconnectedEventListeners.add(new ListenerRegistration<PeerDisconnectedEventListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addDisconnectedEventListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addDisconnectedEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addDiscoveredEventListener(PeerDiscoveredEventListener)} */
+    public void addDiscoveredEventListener(PeerDiscoveredEventListener listener) {
+        addDiscoveredEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /**
+     * <p>Adds a listener that will be notified on the given executor when new
+     * peers are discovered.</p>
+     */
+    public void addDiscoveredEventListener(Executor executor, PeerDiscoveredEventListener listener) {
+        peerDiscoveredEventListeners.add(new ListenerRegistration<PeerDiscoveredEventListener>(checkNotNull(listener), executor));
+    }
+
+    /** See {@link Peer#addGetDataEventListener(GetDataEventListener)} */
+    public void addGetDataEventListener(GetDataEventListener listener) {
+        addGetDataEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /** See {@link Peer#addGetDataEventListener(Executor, GetDataEventListener)} */
+    public void addGetDataEventListener(final Executor executor, final GetDataEventListener listener) {
+        peerGetDataEventListeners.add(new ListenerRegistration<GetDataEventListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addGetDataEventListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addGetDataEventListener(executor, listener);
+    }
+
+    /** See {@link Peer#addOnTransactionBroadcastListener(OnTransactionBroadcastListener)} */
+    public void addOnTransactionBroadcastListener(OnTransactionBroadcastListener listener) {
+        addOnTransactionBroadcastListener(Threading.USER_THREAD, listener);
+    }
+
+    /** See {@link Peer#addOnTransactionBroadcastListener(OnTransactionBroadcastListener)} */
+    public void addOnTransactionBroadcastListener(Executor executor, OnTransactionBroadcastListener listener) {
+        peersTransactionBroadastEventListeners.add(new ListenerRegistration<OnTransactionBroadcastListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addOnTransactionBroadcastListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addOnTransactionBroadcastListener(executor, listener);
+    }
+
+    /** See {@link Peer#addPreMessageReceivedEventListener(PreMessageReceivedEventListener)} */
+    public void addPreMessageReceivedEventListener(PreMessageReceivedEventListener listener) {
+        addPreMessageReceivedEventListener(Threading.USER_THREAD, listener);
+    }
+
+    /** See {@link Peer#addPreMessageReceivedEventListener(Executor, PreMessageReceivedEventListener)} */
+    public void addPreMessageReceivedEventListener(Executor executor, PreMessageReceivedEventListener listener) {
+        peersPreMessageReceivedEventListeners.add(new ListenerRegistration<PreMessageReceivedEventListener>(checkNotNull(listener), executor));
+        for (Peer peer : getConnectedPeers())
+            peer.addPreMessageReceivedEventListener(executor, listener);
+        for (Peer peer : getPendingPeers())
+            peer.addPreMessageReceivedEventListener(executor, listener);
+    }
+
+    /** Use the more specific listener methods instead */
+    @Deprecated @SuppressWarnings("deprecation")
+    public void removeEventListener(AbstractPeerEventListener listener) {
+        removeBlocksDownloadedEventListener(listener);
+        removeChainDownloadStartedEventListener(listener);
+        removeConnectedEventListener(listener);
+        removeDisconnectedEventListener(listener);
+        removeDiscoveredEventListener(listener);
+        removeGetDataEventListener(listener);
+        removeOnTransactionBroadcastListener(listener);
+        removePreMessageReceivedEventListener(listener);
+    }
+
+    public boolean removeBlocksDownloadedEventListener(BlocksDownloadedEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peersBlocksDownloadedEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeBlocksDownloadedEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeBlocksDownloadedEventListener(listener);
         return result;
     }
 
-    /**
-     * Removes all event listeners simultaneously. Note that this includes listeners added internally by the framework
-     * so it's generally not advised to use this - it exists for special purposes only.
-     */
-    public void clearEventListeners() {
-        peerEventListeners.clear();
+    public boolean removeChainDownloadStartedEventListener(ChainDownloadStartedEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peersChainDownloadStartedEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeChainDownloadStartedEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeChainDownloadStartedEventListener(listener);
+        return result;
+    }
+
+    /** The given event listener will no longer be called with events. */
+    public boolean removeConnectedEventListener(PeerConnectedEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peerConnectedEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeConnectedEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeConnectedEventListener(listener);
+        return result;
+    }
+
+    /** The given event listener will no longer be called with events. */
+    public boolean removeDisconnectedEventListener(PeerDisconnectedEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peerDisconnectedEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeDisconnectedEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeDisconnectedEventListener(listener);
+        return result;
+    }
+
+    /** The given event listener will no longer be called with events. */
+    public boolean removeDiscoveredEventListener(PeerDiscoveredEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peerDiscoveredEventListeners);
+        return result;
+    }
+
+    /** The given event listener will no longer be called with events. */
+    public boolean removeGetDataEventListener(GetDataEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peerGetDataEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeGetDataEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeGetDataEventListener(listener);
+        return result;
+    }
+
+    /** The given event listener will no longer be called with events. */
+    public boolean removeOnTransactionBroadcastListener(OnTransactionBroadcastListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peersTransactionBroadastEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removeOnTransactionBroadcastListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removeOnTransactionBroadcastListener(listener);
+        return result;
+    }
+
+    public boolean removePreMessageReceivedEventListener(PreMessageReceivedEventListener listener) {
+        boolean result = ListenerRegistration.removeFromList(listener, peersPreMessageReceivedEventListeners);
+        for (Peer peer : getConnectedPeers())
+            peer.removePreMessageReceivedEventListener(listener);
+        for (Peer peer : getPendingPeers())
+            peer.removePreMessageReceivedEventListener(listener);
+        return result;
     }
 
     /**
@@ -718,9 +997,25 @@ public class PeerGroup implements TransactionBroadcaster {
         }
     }
 
+    /**
+     * Convenience for connecting only to peers that can serve specific services. It will configure suitable peer
+     * discoveries.
+     * @param requiredServices Required services as a bitmask, e.g. {@link VersionMessage#NODE_NETWORK}.
+     */
+    public void setRequiredServices(long requiredServices) {
+        lock.lock();
+        try {
+            this.requiredServices = requiredServices;
+            peerDiscoverers.clear();
+            addPeerDiscovery(MultiplexingDiscovery.forServices(params, requiredServices));
+        } finally {
+            lock.unlock();
+        }
+    }
+
     /** Convenience method for addAddress(new PeerAddress(address, params.port)); */
     public void addAddress(InetAddress address) {
-        addAddress(new PeerAddress(address, params.getPort()));
+        addAddress(new PeerAddress(params, address, params.getPort()));
     }
 
     /**
@@ -743,12 +1038,13 @@ public class PeerGroup implements TransactionBroadcaster {
         // Don't hold the lock whilst doing peer discovery: it can take a long time and cause high API latency.
         checkState(!lock.isHeldByCurrentThread());
         int maxPeersToDiscoverCount = this.vMaxPeersToDiscoverCount;
-        long start = System.currentTimeMillis();
+        long peerDiscoveryTimeoutMillis = this.vPeerDiscoveryTimeoutMillis;
+        final Stopwatch watch = Stopwatch.createStarted();
         final List<PeerAddress> addressList = Lists.newLinkedList();
         for (PeerDiscovery peerDiscovery : peerDiscoverers /* COW */) {
             InetSocketAddress[] addresses;
-            addresses = peerDiscovery.getPeers(5, TimeUnit.SECONDS);
-            for (InetSocketAddress address : addresses) addressList.add(new PeerAddress(address));
+            addresses = peerDiscovery.getPeers(requiredServices, peerDiscoveryTimeoutMillis, TimeUnit.MILLISECONDS);
+            for (InetSocketAddress address : addresses) addressList.add(new PeerAddress(params, address));
             if (addressList.size() >= maxPeersToDiscoverCount) break;
         }
         if (!addressList.isEmpty()) {
@@ -756,7 +1052,7 @@ public class PeerGroup implements TransactionBroadcaster {
                 addInactive(address);
             }
             final ImmutableSet<PeerAddress> peersDiscoveredSet = ImmutableSet.copyOf(addressList);
-            for (final ListenerRegistration<PeerEventListener> registration : peerEventListeners /* COW */) {
+            for (final ListenerRegistration<PeerDiscoveredEventListener> registration : peerDiscoveredEventListeners /* COW */) {
                 registration.executor.execute(new Runnable() {
                     @Override
                     public void run() {
@@ -765,8 +1061,8 @@ public class PeerGroup implements TransactionBroadcaster {
                 });
             }
         }
-        log.info("Peer discovery took {}msec and returned {} items",
-                System.currentTimeMillis() - start, addressList.size());
+        watch.stop();
+        log.info("Peer discovery took {} and returned {} items", watch, addressList.size());
         return addressList.size();
     }
 
@@ -796,19 +1092,23 @@ public class PeerGroup implements TransactionBroadcaster {
         checkState(lock.isHeldByCurrentThread());
         if (localhostCheckState == LocalhostCheckState.NOT_TRIED) {
             // Do a fast blocking connect to see if anything is listening.
+            Socket socket = null;
             try {
-                Socket socket = new Socket();
+                socket = new Socket();
                 socket.connect(new InetSocketAddress(InetAddresses.forString("127.0.0.1"), params.getPort()), vConnectTimeoutMillis);
                 localhostCheckState = LocalhostCheckState.FOUND;
-                try {
-                    socket.close();
-                } catch (IOException e) {
-                    // Ignore.
-                }
                 return true;
             } catch (IOException e) {
                 log.info("Localhost peer not detected.");
                 localhostCheckState = LocalhostCheckState.NOT_THERE;
+            } finally {
+                if (socket != null) {
+                    try {
+                        socket.close();
+                    } catch (IOException e) {
+                        // Ignore.
+                    }
+                }
             }
         }
         return false;
@@ -884,6 +1184,7 @@ public class PeerGroup implements TransactionBroadcaster {
                         torClient.stop();
                     }
                     vRunning = false;
+                    log.info("Stopped.");
                 } catch (Throwable e) {
                     log.error("Exception when shutting down", e);  // The executor swallows exceptions :(
                 }
@@ -897,6 +1198,7 @@ public class PeerGroup implements TransactionBroadcaster {
     public void stop() {
         try {
             stopAsync();
+            log.info("Awaiting PeerGroup shutdown ...");
             executor.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -936,7 +1238,9 @@ public class PeerGroup implements TransactionBroadcaster {
             checkState(!wallets.contains(wallet));
             wallets.add(wallet);
             wallet.setTransactionBroadcaster(this);
-            wallet.addEventListener(walletEventListener, Threading.SAME_THREAD);
+            wallet.addCoinsReceivedEventListener(Threading.SAME_THREAD, walletCoinsReceivedEventListener);
+            wallet.addKeyChainEventListener(Threading.SAME_THREAD, walletKeyEventListener);
+            wallet.addScriptChangeEventListener(Threading.SAME_THREAD, walletScriptEventListener);
             addPeerFilterProvider(wallet);
             for (Peer peer : peers) {
                 peer.addWallet(wallet);
@@ -952,8 +1256,14 @@ public class PeerGroup implements TransactionBroadcaster {
      *
      * <p>Note that this should be done before chain download commences because if you add a listener with keys earlier
      * than the current chain head, the relevant parts of the chain won't be redownloaded for you.</p>
+     *
+     * <p>This method invokes {@link PeerGroup#recalculateFastCatchupAndFilter(FilterRecalculateMode)}.
+     * The return value of this method is the <code>ListenableFuture</code> returned by that invocation.</p>
+     *
+     * @return a future that completes once each <code>Peer</code> in this group has had its
+     *         <code>BloomFilter</code> (re)set.
      */
-    public void addPeerFilterProvider(PeerFilterProvider provider) {
+    public ListenableFuture<BloomFilter> addPeerFilterProvider(PeerFilterProvider provider) {
         lock.lock();
         try {
             checkNotNull(provider);
@@ -972,8 +1282,9 @@ public class PeerGroup implements TransactionBroadcaster {
             // if a key is added. Of course, by then we may have downloaded the chain already. Ideally adding keys would
             // automatically rewind the block chain and redownload the blocks to find transactions relevant to those keys,
             // all transparently and in the background. But we are a long way from that yet.
-            recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
+            ListenableFuture<BloomFilter> future = recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
             updateVersionMessageRelayTxesBeforeFilter(getVersionMessage());
+            return future;
         } finally {
             lock.unlock();
         }
@@ -999,14 +1310,16 @@ public class PeerGroup implements TransactionBroadcaster {
     public void removeWallet(Wallet wallet) {
         wallets.remove(checkNotNull(wallet));
         peerFilterProviders.remove(wallet);
-        wallet.removeEventListener(walletEventListener);
+        wallet.removeCoinsReceivedEventListener(walletCoinsReceivedEventListener);
+        wallet.removeKeyChainEventListener(walletKeyEventListener);
+        wallet.removeScriptChangeEventListener(walletScriptEventListener);
         wallet.setTransactionBroadcaster(null);
         for (Peer peer : peers) {
             peer.removeWallet(wallet);
         }        
     }
 
-    public static enum FilterRecalculateMode {
+    public enum FilterRecalculateMode {
         SEND_IF_CHANGED,
         FORCE_SEND_FOR_REFRESH,
         DONT_SEND,
@@ -1029,7 +1342,7 @@ public class PeerGroup implements TransactionBroadcaster {
                 return inFlightRecalculations.get(mode);
             inFlightRecalculations.put(mode, future);
         }
-        executor.execute(new Runnable() {
+        Runnable command = new Runnable() {
             @Override
             public void run() {
                 try {
@@ -1042,7 +1355,7 @@ public class PeerGroup implements TransactionBroadcaster {
             public void go() {
                 checkState(!lock.isHeldByCurrentThread());
                 // Fully verifying mode doesn't use this optimization (it can't as it needs to see all transactions).
-                if (chain != null && chain.shouldVerifyTransactions())
+                if ((chain != null && chain.shouldVerifyTransactions()) || !vBloomFilteringEnabled)
                     return;
                 // We only ever call bloomFilterMerger.calculate on jobQueue, so we cannot be calculating two filters at once.
                 FilterMerger.Result result = bloomFilterMerger.calculate(ImmutableList.copyOf(peerFilterProviders /* COW */));
@@ -1079,7 +1392,12 @@ public class PeerGroup implements TransactionBroadcaster {
                 }
                 future.set(result.filter);
             }
-        });
+        };
+        try {
+            executor.execute(command);
+        } catch (RejectedExecutionException e) {
+            // Can happen during shutdown.
+        }
         return future;
     }
     
@@ -1104,7 +1422,7 @@ public class PeerGroup implements TransactionBroadcaster {
 
     /**
      * Returns the number of currently connected peers. To be informed when this count changes, register a 
-     * {@link PeerEventListener} and use the onPeerConnected/onPeerDisconnected methods.
+     * {@link org.bitcoinj.core.listeners.PeerConnectionEventListener} and use the onPeerConnected/onPeerDisconnected methods.
      */
     public int numConnectedPeers() {
         return peers.size();
@@ -1123,7 +1441,7 @@ public class PeerGroup implements TransactionBroadcaster {
     public Peer connectTo(InetSocketAddress address) {
         lock.lock();
         try {
-            PeerAddress peerAddress = new PeerAddress(address);
+            PeerAddress peerAddress = new PeerAddress(params, address);
             backoffMap.put(peerAddress, new ExponentialBackoff(peerBackoffParams));
             return connectTo(peerAddress, true, vConnectTimeoutMillis);
         } finally {
@@ -1161,16 +1479,22 @@ public class PeerGroup implements TransactionBroadcaster {
         ver.bestHeight = chain == null ? 0 : chain.getBestChainHeight();
         ver.time = Utils.currentTimeSeconds();
 
-        Peer peer = new Peer(params, ver, address, chain, downloadTxDependencies);
-        peer.addEventListener(startupListener, Threading.SAME_THREAD);
+        Peer peer = createPeer(address, ver);
+        peer.addConnectedEventListener(Threading.SAME_THREAD, startupListener);
+        peer.addDisconnectedEventListener(Threading.SAME_THREAD, startupListener);
         peer.setMinProtocolVersion(vMinRequiredProtocolVersion);
         pendingPeers.add(peer);
 
         try {
-            channels.openConnection(address.toSocketAddress(), peer);
-        } catch (Exception e) {
-            log.warn("Failed to connect to " + address + ": " + e.getMessage());
-            handlePeerDeath(peer, e);
+            log.info("Attempting connection to {}     ({} connected, {} pending, {} max)", address,
+                    peers.size(), pendingPeers.size(), maxConnections);
+            ListenableFuture<SocketAddress> future = channels.openConnection(address.toSocketAddress(), peer);
+            if (future.isDone())
+                Uninterruptibles.getUninterruptibly(future);
+        } catch (ExecutionException e) {
+            Throwable cause = Throwables.getRootCause(e);
+            log.warn("Failed to connect to " + address + ": " + cause.getMessage());
+            handlePeerDeath(peer, cause);
             return null;
         }
         peer.setSocketTimeout(connectTimeoutMillis);
@@ -1182,6 +1506,12 @@ public class PeerGroup implements TransactionBroadcaster {
             maxConnections++;
         }
         return peer;
+    }
+
+    /** You can override this to customise the creation of {@link Peer} objects. */
+    @GuardedBy("lock")
+    protected Peer createPeer(PeerAddress address, VersionMessage ver) {
+        return new Peer(params, ver, address, chain, downloadTxDependencyDepth);
     }
 
     /**
@@ -1200,13 +1530,17 @@ public class PeerGroup implements TransactionBroadcaster {
      *
      * @param listener a listener for chain download events, may not be null
      */
-    public void startBlockChainDownload(PeerEventListener listener) {
+    public void startBlockChainDownload(PeerDataEventListener listener) {
         lock.lock();
         try {
-            if (downloadPeer != null && this.downloadListener != null)
-                downloadPeer.removeEventListener(this.downloadListener);
-            if (downloadPeer != null && listener != null)
-                downloadPeer.addEventListener(listener);
+            if (downloadPeer != null) {
+                if (this.downloadListener != null) {
+                    removeDataEventListenerFromPeer(downloadPeer, this.downloadListener);
+                }
+                if (listener != null) {
+                    addDataEventListenerToPeer(Threading.USER_THREAD, downloadPeer, listener);
+                }
+            }
             this.downloadListener = listener;
             // TODO: be more nuanced about which peer to download from.  We can also try
             // downloading from multiple peers and handle the case when a new peer comes along
@@ -1217,6 +1551,30 @@ public class PeerGroup implements TransactionBroadcaster {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Register a data event listener against a single peer (i.e. for blockchain
+     * download). Handling registration/deregistration on peer death/add is
+     * outside the scope of these methods.
+     */
+    private static void addDataEventListenerToPeer(Executor executor, Peer peer, PeerDataEventListener downloadListener) {
+        peer.addBlocksDownloadedEventListener(executor, downloadListener);
+        peer.addChainDownloadStartedEventListener(executor, downloadListener);
+        peer.addGetDataEventListener(executor, downloadListener);
+        peer.addPreMessageReceivedEventListener(executor, downloadListener);
+    }
+
+    /**
+     * Remove a registered data event listener against a single peer (i.e. for
+     * blockchain download). Handling registration/deregistration on peer death/add is
+     * outside the scope of these methods.
+     */
+    private static void removeDataEventListenerFromPeer(Peer peer, PeerDataEventListener listener) {
+        peer.removeBlocksDownloadedEventListener(listener);
+        peer.removeChainDownloadStartedEventListener(listener);
+        peer.removeGetDataEventListener(listener);
+        peer.removePreMessageReceivedEventListener(listener);
     }
 
     /**
@@ -1243,10 +1601,10 @@ public class PeerGroup implements TransactionBroadcaster {
             backoffMap.get(peer.getAddress()).trackSuccess();
 
             // Sets up the newly connected peer so it can do everything it needs to.
-            log.info("{}: New peer", peer);
             pendingPeers.remove(peer);
             peers.add(peer);
             newSize = peers.size();
+            log.info("{}: New peer      ({} connected, {} pending, {} max)", peer, newSize, pendingPeers.size(), maxConnections);
             // Give the peer a filter that can be used to probabilistically drop transactions that
             // aren't relevant to our wallet. We may still receive some false positives, which is
             // OK because it helps improve wallet privacy. Old nodes will just ignore the message.
@@ -1255,27 +1613,38 @@ public class PeerGroup implements TransactionBroadcaster {
             // TODO: The peer should calculate the fast catchup time from the added wallets here.
             for (Wallet wallet : wallets)
                 peer.addWallet(wallet);
-            // Re-evaluate download peers.
-            Peer newDownloadPeer = selectDownloadPeer(peers);
-            if (downloadPeer != newDownloadPeer) {
-                setDownloadPeer(newDownloadPeer);
+            if (downloadPeer == null) {
+                // Kick off chain download if we aren't already doing it.
+                setDownloadPeer(selectDownloadPeer(peers));
                 boolean shouldDownloadChain = downloadListener != null && chain != null;
                 if (shouldDownloadChain) {
                     startBlockChainDownloadFromPeer(downloadPeer);
                 }
             }
             // Make sure the peer knows how to upload transactions that are requested from us.
-            peer.addEventListener(peerListener, Threading.SAME_THREAD);
+            peer.addBlocksDownloadedEventListener(Threading.SAME_THREAD, peerListener);
+            peer.addGetDataEventListener(Threading.SAME_THREAD, peerListener);
+
             // And set up event listeners for clients. This will allow them to find out about new transactions and blocks.
-            for (ListenerRegistration<PeerEventListener> registration : peerEventListeners) {
-                peer.addEventListenerWithoutOnDisconnect(registration.listener, registration.executor);
-            }
+            for (ListenerRegistration<BlocksDownloadedEventListener> registration : peersBlocksDownloadedEventListeners)
+                peer.addBlocksDownloadedEventListener(registration.executor, registration.listener);
+            for (ListenerRegistration<ChainDownloadStartedEventListener> registration : peersChainDownloadStartedEventListeners)
+                peer.addChainDownloadStartedEventListener(registration.executor, registration.listener);
+            for (ListenerRegistration<PeerConnectedEventListener> registration : peerConnectedEventListeners)
+                peer.addConnectedEventListener(registration.executor, registration.listener);
+            // We intentionally do not add disconnect listeners to peers
+            for (ListenerRegistration<GetDataEventListener> registration : peerGetDataEventListeners)
+                peer.addGetDataEventListener(registration.executor, registration.listener);
+            for (ListenerRegistration<OnTransactionBroadcastListener> registration : peersTransactionBroadastEventListeners)
+                peer.addOnTransactionBroadcastListener(registration.executor, registration.listener);
+            for (ListenerRegistration<PreMessageReceivedEventListener> registration : peersPreMessageReceivedEventListeners)
+                peer.addPreMessageReceivedEventListener(registration.executor, registration.listener);
         } finally {
             lock.unlock();
         }
 
         final int fNewSize = newSize;
-        for (final ListenerRegistration<PeerEventListener> registration : peerEventListeners) {
+        for (final ListenerRegistration<PeerConnectedEventListener> registration : peerConnectedEventListeners) {
             registration.executor.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -1305,7 +1674,7 @@ public class PeerGroup implements TransactionBroadcaster {
                         return;  // Disabled.
                     }
                     for (Peer peer : getConnectedPeers()) {
-                        if (peer.getPeerVersionMessage().clientVersion < Pong.MIN_PROTOCOL_VERSION)
+                        if (peer.getPeerVersionMessage().clientVersion < params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.PONG))
                             continue;
                         peer.ping();
                     }
@@ -1323,15 +1692,17 @@ public class PeerGroup implements TransactionBroadcaster {
                 return;
             if (downloadPeer != null) {
                 log.info("Unsetting download peer: {}", downloadPeer);
-                if (downloadListener != null)
-                    downloadPeer.removeEventListener(downloadListener);
+                if (downloadListener != null) {
+                    removeDataEventListenerFromPeer(downloadPeer, downloadListener);
+                }
                 downloadPeer.setDownloadData(false);
             }
             downloadPeer = peer;
             if (downloadPeer != null) {
                 log.info("Setting download peer: {}", downloadPeer);
-                if (downloadListener != null)
-                    peer.addEventListener(downloadListener, Threading.SAME_THREAD);
+                if (downloadListener != null) {
+                    addDataEventListenerToPeer(Threading.SAME_THREAD, peer, downloadListener);
+                }
                 downloadPeer.setDownloadData(true);
                 if (chain != null)
                     downloadPeer.setDownloadParameters(fastCatchupTimeSecs, bloomFilterMerger.getLastFilter() != null);
@@ -1341,14 +1712,10 @@ public class PeerGroup implements TransactionBroadcaster {
         }
     }
 
-    /**
-     * Use {@link org.bitcoinj.core.Context#getConfidenceTable()} instead, which can be retrieved via
-     * {@link org.bitcoinj.core.AbstractBlockChain#getContext()}. Can return null if this peer group was
-     * configured without a block chain object.
-     */
+    /** Use "Context.get().getConfidenceTable()" instead */
     @Deprecated @Nullable
     public TxConfidenceTable getMemoryPool() {
-        return chain == null ? null : chain.getContext().getConfidenceTable();
+        return Context.get().getConfidenceTable();
     }
 
     /**
@@ -1384,7 +1751,7 @@ public class PeerGroup implements TransactionBroadcaster {
         }
     }
 
-    protected void handlePeerDeath(final Peer peer, @Nullable Exception exception) {
+    protected void handlePeerDeath(final Peer peer, @Nullable Throwable exception) {
         // Peer deaths can occur during startup if a connect attempt after peer discovery aborts immediately.
         if (!isRunning()) return;
 
@@ -1397,7 +1764,7 @@ public class PeerGroup implements TransactionBroadcaster {
 
             PeerAddress address = peer.getAddress();
 
-            log.info("{}: Peer died", address);
+            log.info("{}: Peer died      ({} connected, {} pending, {} max)", address, peers.size(), pendingPeers.size(), maxConnections);
             if (peer == downloadPeer) {
                 log.info("Download peer died. Picking a new one.");
                 setDownloadPeer(null);
@@ -1415,11 +1782,12 @@ public class PeerGroup implements TransactionBroadcaster {
 
             groupBackoff.trackFailure();
 
-            if (!(exception instanceof NoRouteToHostException)) {
+            if (exception instanceof NoRouteToHostException) {
                 if (address.getAddr() instanceof Inet6Address && !ipv6Unreachable) {
                     ipv6Unreachable = true;
                     log.warn("IPv6 peer connect failed due to routing failure, ignoring IPv6 addresses from now on");
                 }
+            } else {
                 backoffMap.get(address).trackFailure();
                 // Put back on inactive list
                 inactives.offer(address);
@@ -1432,27 +1800,188 @@ public class PeerGroup implements TransactionBroadcaster {
             lock.unlock();
         }
 
-        peer.removeEventListener(peerListener);
+        peer.removeBlocksDownloadedEventListener(peerListener);
+        peer.removeGetDataEventListener(peerListener);
         for (Wallet wallet : wallets) {
             peer.removeWallet(wallet);
         }
 
         final int fNumConnectedPeers = numConnectedPeers;
-        for (final ListenerRegistration<PeerEventListener> registration : peerEventListeners) {
+
+        for (ListenerRegistration<BlocksDownloadedEventListener> registration: peersBlocksDownloadedEventListeners)
+            peer.removeBlocksDownloadedEventListener(registration.listener);
+        for (ListenerRegistration<ChainDownloadStartedEventListener> registration: peersChainDownloadStartedEventListeners)
+            peer.removeChainDownloadStartedEventListener(registration.listener);
+        for (ListenerRegistration<GetDataEventListener> registration: peerGetDataEventListeners)
+            peer.removeGetDataEventListener(registration.listener);
+        for (ListenerRegistration<PreMessageReceivedEventListener> registration: peersPreMessageReceivedEventListeners)
+            peer.removePreMessageReceivedEventListener(registration.listener);
+        for (ListenerRegistration<OnTransactionBroadcastListener> registration : peersTransactionBroadastEventListeners)
+            peer.removeOnTransactionBroadcastListener(registration.listener);
+        for (final ListenerRegistration<PeerDisconnectedEventListener> registration : peerDisconnectedEventListeners) {
             registration.executor.execute(new Runnable() {
                 @Override
                 public void run() {
                     registration.listener.onPeerDisconnected(peer, fNumConnectedPeers);
                 }
             });
-            peer.removeEventListener(registration.listener);
+            peer.removeDisconnectedEventListener(registration.listener);
         }
     }
+
+    @GuardedBy("lock") private int stallPeriodSeconds = 10;
+    @GuardedBy("lock") private int stallMinSpeedBytesSec = Block.HEADER_SIZE * 20;
+
+    /**
+     * Configures the stall speed: the speed at which a peer is considered to be serving us the block chain
+     * unacceptably slowly. Once a peer has served us data slower than the given data rate for the given
+     * number of seconds, it is considered stalled and will be disconnected, forcing the chain download to continue
+     * from a different peer. The defaults are chosen conservatively, but if you are running on a platform that is
+     * CPU constrained or on a very slow network e.g. EDGE, the default settings may need adjustment to
+     * avoid false stalls.
+     *
+     * @param periodSecs How many seconds the download speed must be below blocksPerSec, defaults to 10.
+     * @param bytesPerSecond Download speed (only blocks/txns count) must be consistently below this for a stall, defaults to the bandwidth required for 20 block headers per second.
+     */
+    public void setStallThreshold(int periodSecs, int bytesPerSecond) {
+        lock.lock();
+        try {
+            stallPeriodSeconds = periodSecs;
+            stallMinSpeedBytesSec = bytesPerSecond;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private class ChainDownloadSpeedCalculator implements BlocksDownloadedEventListener, Runnable {
+        private int blocksInLastSecond, txnsInLastSecond, origTxnsInLastSecond;
+        private long bytesInLastSecond;
+
+        // If we take more stalls than this, we assume we're on some kind of terminally slow network and the
+        // stall threshold just isn't set properly. We give up on stall disconnects after that.
+        private int maxStalls = 3;
+
+        // How many seconds the peer has until we start measuring its speed.
+        private int warmupSeconds = -1;
+
+        // Used to calculate a moving average.
+        private long[] samples;
+        private int cursor;
+
+        private boolean syncDone;
+
+        @Override
+        public synchronized void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
+            blocksInLastSecond++;
+            bytesInLastSecond += Block.HEADER_SIZE;
+            List<Transaction> blockTransactions = block.getTransactions();
+            // This whole area of the type hierarchy is a mess.
+            int txCount = (blockTransactions != null ? countAndMeasureSize(blockTransactions) : 0) +
+                          (filteredBlock != null ? countAndMeasureSize(filteredBlock.getAssociatedTransactions().values()) : 0);
+            txnsInLastSecond = txnsInLastSecond + txCount;
+            if (filteredBlock != null)
+                origTxnsInLastSecond += filteredBlock.getTransactionCount();
+        }
+
+        private int countAndMeasureSize(Collection<Transaction> transactions) {
+            for (Transaction transaction : transactions)
+                bytesInLastSecond += transaction.getMessageSize();
+            return transactions.size();
+        }
+
+        @Override
+        public void run() {
+            try {
+                calculate();
+            } catch (Throwable e) {
+                log.error("Error in speed calculator", e);
+            }
+        }
+
+        private void calculate() {
+            int minSpeedBytesPerSec;
+            int period;
+
+            lock.lock();
+            try {
+                minSpeedBytesPerSec = stallMinSpeedBytesSec;
+                period = stallPeriodSeconds;
+            } finally {
+                lock.unlock();
+            }
+
+            synchronized (this) {
+                if (samples == null || samples.length != period) {
+                    samples = new long[period];
+                    // *2 because otherwise a single low sample could cause an immediate disconnect which is too harsh.
+                    Arrays.fill(samples, minSpeedBytesPerSec * 2);
+                    warmupSeconds = 15;
+                }
+
+                boolean behindPeers = chain != null && chain.getBestChainHeight() < getMostCommonChainHeight();
+                if (!behindPeers)
+                    syncDone = true;
+                if (!syncDone) {
+                    if (warmupSeconds < 0) {
+                        // Calculate the moving average.
+                        samples[cursor++] = bytesInLastSecond;
+                        if (cursor == samples.length) cursor = 0;
+                        long average = 0;
+                        for (long sample : samples) average += sample;
+                        average /= samples.length;
+
+                        log.info(String.format(Locale.US, "%d blocks/sec, %d tx/sec, %d pre-filtered tx/sec, avg/last %.2f/%.2f kilobytes per sec (stall threshold <%.2f KB/sec for %d seconds)",
+                                blocksInLastSecond, txnsInLastSecond, origTxnsInLastSecond, average / 1024.0, bytesInLastSecond / 1024.0,
+                                minSpeedBytesPerSec / 1024.0, samples.length));
+
+                        if (average < minSpeedBytesPerSec && maxStalls > 0) {
+                            maxStalls--;
+                            if (maxStalls == 0) {
+                                // We could consider starting to drop the Bloom filtering FP rate at this point, because
+                                // we tried a bunch of peers and no matter what we don't seem to be able to go any faster.
+                                // This implies we're bandwidth bottlenecked and might want to start using bandwidth
+                                // more effectively. Of course if there's a MITM that is deliberately throttling us,
+                                // this is a good way to make us take away all the FPs from our Bloom filters ... but
+                                // as they don't give us a whole lot of privacy either way that's not inherently a big
+                                // deal.
+                                log.warn("This network seems to be slower than the requested stall threshold - won't do stall disconnects any more.");
+                            } else {
+                                Peer peer = getDownloadPeer();
+                                log.warn(String.format(Locale.US, "Chain download stalled: received %.2f KB/sec for %d seconds, require average of %.2f KB/sec, disconnecting %s", average / 1024.0, samples.length, minSpeedBytesPerSec / 1024.0, peer));
+                                peer.close();
+                                // Reset the sample buffer and give the next peer time to get going.
+                                samples = null;
+                                warmupSeconds = period;
+                            }
+                        }
+                    } else {
+                        warmupSeconds--;
+                        if (bytesInLastSecond > 0)
+                            log.info(String.format(Locale.US, "%d blocks/sec, %d tx/sec, %d pre-filtered tx/sec, last %.2f kilobytes per sec",
+                                    blocksInLastSecond, txnsInLastSecond, origTxnsInLastSecond, bytesInLastSecond / 1024.0));
+                    }
+                }
+                blocksInLastSecond = 0;
+                txnsInLastSecond = 0;
+                origTxnsInLastSecond = 0;
+                bytesInLastSecond = 0;
+            }
+        }
+    }
+    @Nullable private ChainDownloadSpeedCalculator chainDownloadSpeedCalculator;
 
     private void startBlockChainDownloadFromPeer(Peer peer) {
         lock.lock();
         try {
             setDownloadPeer(peer);
+
+            if (chainDownloadSpeedCalculator == null) {
+                // Every second, run the calculator which will log how fast we are downloading the chain.
+                chainDownloadSpeedCalculator = new ChainDownloadSpeedCalculator();
+                executor.scheduleAtFixedRate(chainDownloadSpeedCalculator, 1, 1, TimeUnit.SECONDS);
+            }
+            peer.addBlocksDownloadedEventListener(Threading.SAME_THREAD, chainDownloadSpeedCalculator);
+
             // startBlockChainDownload will setDownloadData(true) on itself automatically.
             peer.startBlockChainDownload();
         } finally {
@@ -1487,13 +2016,13 @@ public class PeerGroup implements TransactionBroadcaster {
             return Futures.immediateFuture(foundPeers);
         }
         final SettableFuture<List<Peer>> future = SettableFuture.create();
-        addEventListener(new AbstractPeerEventListener() {
+        addConnectedEventListener(new PeerConnectedEventListener() {
             @Override
             public void onPeerConnected(Peer peer, int peerCount) {
                 final List<Peer> peers = findPeersOfAtLeastVersion(protocolVersion);
                 if (peers.size() >= numPeers) {
                     future.set(peers);
-                    removeEventListener(this);
+                    removeConnectedEventListener(this);
                 }
             }
         });
@@ -1501,7 +2030,7 @@ public class PeerGroup implements TransactionBroadcaster {
     }
 
     /**
-     * Returns a mutable array list of peers that implement the given protocol version or better.
+     * Returns an array list of peers that implement the given protocol version or better.
      */
     public List<Peer> findPeersOfAtLeastVersion(long protocolVersion) {
         lock.lock();
@@ -1517,10 +2046,57 @@ public class PeerGroup implements TransactionBroadcaster {
     }
 
     /**
+     * Returns a future that is triggered when there are at least the requested number of connected peers that support
+     * the given protocol version or higher. To block immediately, just call get() on the result.
+     *
+     * @param numPeers How many peers to wait for.
+     * @param mask An integer representing a bit mask that will be ANDed with the peers advertised service masks.
+     * @return a future that will be triggered when the number of connected peers implementing protocolVersion or higher >= numPeers
+     */
+    public ListenableFuture<List<Peer>> waitForPeersWithServiceMask(final int numPeers, final int mask) {
+        lock.lock();
+        try {
+            List<Peer> foundPeers = findPeersWithServiceMask(mask);
+            if (foundPeers.size() >= numPeers)
+                return Futures.immediateFuture(foundPeers);
+            final SettableFuture<List<Peer>> future = SettableFuture.create();
+            addConnectedEventListener(new PeerConnectedEventListener() {
+                @Override
+                public void onPeerConnected(Peer peer, int peerCount) {
+                    final List<Peer> peers = findPeersWithServiceMask(mask);
+                    if (peers.size() >= numPeers) {
+                        future.set(peers);
+                        removeConnectedEventListener(this);
+                    }
+                }
+            });
+            return future;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Returns an array list of peers that match the requested service bit mask.
+     */
+    public List<Peer> findPeersWithServiceMask(int mask) {
+        lock.lock();
+        try {
+            ArrayList<Peer> results = new ArrayList<Peer>(peers.size());
+            for (Peer peer : peers)
+                if ((peer.getPeerVersionMessage().localServices & mask) == mask)
+                    results.add(peer);
+            return results;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * Returns the number of connections that are required before transactions will be broadcast. If there aren't
      * enough, {@link PeerGroup#broadcastTransaction(Transaction)} will wait until the minimum number is reached so
      * propagation across the network can be observed. If no value has been set using
-     * {@link PeerGroup#setMinBroadcastConnections(int)} a default of half of whatever
+     * {@link PeerGroup#setMinBroadcastConnections(int)} a default of 80% of whatever
      * {@link org.bitcoinj.core.PeerGroup#getMaxConnections()} returns is used.
      */
     public int getMinBroadcastConnections() {
@@ -1531,7 +2107,7 @@ public class PeerGroup implements TransactionBroadcaster {
                 if (max <= 1)
                     return max;
                 else
-                    return (int) Math.round(getMaxConnections() / 2.0);
+                    return (int) Math.round(getMaxConnections() * 0.8);
             }
             return minBroadcastConnections;
         } finally {
@@ -1556,13 +2132,14 @@ public class PeerGroup implements TransactionBroadcaster {
      * of connections to wait for before commencing broadcast.
      */
     @Override
-    public ListenableFuture<Transaction> broadcastTransaction(final Transaction tx) {
+    public TransactionBroadcast broadcastTransaction(final Transaction tx) {
         return broadcastTransaction(tx, Math.max(1, getMinBroadcastConnections()));
     }
 
     /**
      * <p>Given a transaction, sends it un-announced to one peer and then waits for it to be received back from other
-     * peers. Once all connected peers have announced the transaction, the future will be completed. If anything goes
+     * peers. Once all connected peers have announced the transaction, the future available via the
+     * {@link org.bitcoinj.core.TransactionBroadcast#future()} method will be completed. If anything goes
      * wrong the exception will be thrown when get() is called, or you can receive it via a callback on the
      * {@link ListenableFuture}. This method returns immediately, so if you want it to block just call get() on the
      * result.</p>
@@ -1570,19 +2147,21 @@ public class PeerGroup implements TransactionBroadcaster {
      * <p>Note that if the PeerGroup is limited to only one connection (discovery is not activated) then the future
      * will complete as soon as the transaction was successfully written to that peer.</p>
      *
-     * <p>Other than for sending your own transactions, this method is useful if you have received a transaction from
-     * someone and want to know that it's valid. It's a bit of a weird hack because the current version of the Bitcoin
-     * protocol does not inform you if you send an invalid transaction. Because sending bad transactions counts towards
-     * your DoS limit, be careful with relaying lots of unknown transactions. Otherwise you might get kicked off the
-     * network.</p>
-     *
      * <p>The transaction won't be sent until there are at least minConnections active connections available.
      * A good choice for proportion would be between 0.5 and 0.8 but if you want faster transmission during initial
      * bringup of the peer group you can lower it.</p>
+     *
+     * <p>The returned {@link org.bitcoinj.core.TransactionBroadcast} object can be used to get progress feedback,
+     * which is calculated by watching the transaction propagate across the network and be announced by peers.</p>
      */
-    public ListenableFuture<Transaction> broadcastTransaction(final Transaction tx, final int minConnections) {
-        // TODO: Context being owned by BlockChain isn't right w.r.t future intentions so it shouldn't really be optional here.
-        final TransactionBroadcast broadcast = new TransactionBroadcast(this, chain != null ? chain.getContext() : null, tx);
+    public TransactionBroadcast broadcastTransaction(final Transaction tx, final int minConnections) {
+        // If we don't have a record of where this tx came from already, set it to be ourselves so Peer doesn't end up
+        // redownloading it from the network redundantly.
+        if (tx.getConfidence().getSource().equals(TransactionConfidence.Source.UNKNOWN)) {
+            log.info("Transaction source unknown, setting to SELF: {}", tx.getHashAsString());
+            tx.getConfidence().setSource(TransactionConfidence.Source.SELF);
+        }
+        final TransactionBroadcast broadcast = new TransactionBroadcast(this, tx);
         broadcast.setMinConnections(minConnections);
         // Send the TX to the wallet once we have a successful broadcast.
         Futures.addCallback(broadcast.future(), new FutureCallback<Transaction>() {
@@ -1608,9 +2187,8 @@ public class PeerGroup implements TransactionBroadcaster {
 
             @Override
             public void onFailure(Throwable throwable) {
-                // This can't happen with the current code, but just in case one day that changes ...
+                // This can happen if we get a reject message from a peer.
                 runningBroadcasts.remove(broadcast);
-                throw new RuntimeException(throwable);
             }
         });
         // Keep a reference to the TransactionBroadcast object. This is important because otherwise, the entire tree
@@ -1619,7 +2197,7 @@ public class PeerGroup implements TransactionBroadcaster {
         // at all.
         runningBroadcasts.add(broadcast);
         broadcast.broadcast();
-        return broadcast.future();
+        return broadcast;
     }
 
     /**
@@ -1694,11 +2272,6 @@ public class PeerGroup implements TransactionBroadcaster {
         return Utils.maxOfMostFreq(heights);
     }
 
-    private static class PeerAndPing {
-        Peer peer;
-        long pingTime;
-    }
-
     /**
      * Given a list of Peers, return a Peer to be used as the download peer. If you don't want PeerGroup to manage
      * download peer statuses for you, just override this and always return null.
@@ -1708,7 +2281,7 @@ public class PeerGroup implements TransactionBroadcaster {
         // Characteristics to select for in order of importance:
         //  - Chain height is reasonable (majority of nodes)
         //  - High enough protocol version for the features we want (but we'll settle for less)
-        //  - Ping time.
+        //  - Randomly, to try and spread the load.
         if (peers.isEmpty())
             return null;
         // Make sure we don't select a peer that is behind/synchronizing itself.
@@ -1723,28 +2296,19 @@ public class PeerGroup implements TransactionBroadcaster {
         // better then we'll settle for the highest we found instead.
         int highestVersion = 0, preferredVersion = 0;
         // If/when PREFERRED_VERSION is not equal to vMinRequiredProtocolVersion, reenable the last test in PeerGroupTest.downloadPeerSelection
-        final int PREFERRED_VERSION = FilteredBlock.MIN_PROTOCOL_VERSION;
+        final int PREFERRED_VERSION = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
         for (Peer peer : candidates) {
             highestVersion = Math.max(peer.getPeerVersionMessage().clientVersion, highestVersion);
             preferredVersion = Math.min(highestVersion, PREFERRED_VERSION);
         }
-        List<PeerAndPing> candidates2 = new ArrayList<PeerAndPing>();
+        ArrayList<Peer> candidates2 = new ArrayList<Peer>(candidates.size());
         for (Peer peer : candidates) {
             if (peer.getPeerVersionMessage().clientVersion >= preferredVersion) {
-                PeerAndPing pap = new PeerAndPing();
-                pap.peer = peer;
-                pap.pingTime = peer.getPingTime();
-                candidates2.add(pap);
+                candidates2.add(peer);
             }
         }
-        // Sort by ping time.
-        Collections.sort(candidates2, new Comparator<PeerAndPing>() {
-            @Override
-            public int compare(PeerAndPing peerAndPing, PeerAndPing peerAndPing2) {
-                return Longs.compare(peerAndPing.pingTime, peerAndPing2.pingTime);
-            }
-        });
-        return candidates2.get(0).peer;
+        int index = (int) (Math.random() * candidates2.size());
+        return candidates2.get(index);
     }
 
     /**
@@ -1812,5 +2376,19 @@ public class PeerGroup implements TransactionBroadcaster {
 
     public boolean isRunning() {
         return vRunning;
+    }
+
+    /**
+     * Can be used to disable Bloom filtering entirely, even in SPV mode. You are very unlikely to need this, it is
+     * an optimisation for rare cases when full validation is not required but it's still more efficient to download
+     * full blocks than filtered blocks.
+     */
+    public void setBloomFilteringEnabled(boolean bloomFilteringEnabled) {
+        this.vBloomFilteringEnabled = bloomFilteringEnabled;
+    }
+
+    /** Returns whether the Bloom filtering protocol optimisation is in use: defaults to true. */
+    public boolean isBloomFilteringEnabled() {
+        return vBloomFilteringEnabled;
     }
 }

@@ -17,31 +17,21 @@
 
 package org.bitcoinj.wallet;
 
+import com.google.common.base.*;
+import com.google.common.collect.*;
+import com.google.protobuf.*;
 import org.bitcoinj.core.*;
-import org.bitcoinj.crypto.ChildNumber;
-import org.bitcoinj.crypto.DeterministicKey;
-import org.bitcoinj.crypto.KeyCrypter;
-import org.bitcoinj.crypto.LinuxSecureRandom;
-import org.bitcoinj.script.Script;
-import org.bitcoinj.script.ScriptBuilder;
-import org.bitcoinj.store.UnreadableWalletException;
-import org.bitcoinj.utils.ListenerRegistration;
-import org.bitcoinj.utils.Threading;
+import org.bitcoinj.crypto.*;
+import org.bitcoinj.script.*;
+import org.bitcoinj.store.*;
+import org.bitcoinj.utils.*;
+import org.slf4j.*;
+import org.spongycastle.crypto.params.*;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Multimap;
-import com.google.protobuf.ByteString;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.spongycastle.crypto.params.KeyParameter;
-
-import javax.annotation.Nullable;
-import java.security.SecureRandom;
+import javax.annotation.*;
+import java.security.*;
 import java.util.*;
-import java.util.concurrent.Executor;
+import java.util.concurrent.*;
 
 import static com.google.common.base.Preconditions.*;
 
@@ -101,15 +91,6 @@ public class KeyChainGroup implements KeyBag {
      */
     public KeyChainGroup(NetworkParameters params, DeterministicKey watchKey) {
         this(params, null, ImmutableList.of(DeterministicKeyChain.watch(watchKey)), null, null);
-    }
-
-    /**
-     * Creates a keychain group with no basic chain, and an HD chain that is watching the given watching key which
-     * was assumed to be first used at the given UNIX time.
-     * This HAS to be an account key as returned by {@link DeterministicKeyChain#getWatchingKey()}.
-     */
-    public KeyChainGroup(NetworkParameters params, DeterministicKey watchKey, long creationTimeSecondsSecs) {
-        this(params, null, ImmutableList.of(DeterministicKeyChain.watch(watchKey, creationTimeSecondsSecs)), null, null);
     }
 
     // Used for deserialization.
@@ -259,7 +240,7 @@ public class KeyChainGroup implements KeyBag {
     }
 
     /** Returns the key chain that's used for generation of fresh/current keys. This is always the newest HD chain. */
-    public DeterministicKeyChain getActiveKeyChain() {
+    public final DeterministicKeyChain getActiveKeyChain() {
         if (chains.isEmpty()) {
             if (basic.numKeys() > 0) {
                 log.warn("No HD chain present but random keys are: you probably deserialized an old wallet.");
@@ -355,6 +336,7 @@ public class KeyChainGroup implements KeyBag {
         return importKeys(encryptedKeys);
     }
 
+    @Override
     @Nullable
     public RedeemData findRedeemDataFromScriptHash(byte[] scriptHash) {
         // Iterate in reverse order, since the active keychain is the one most likely to have the hit
@@ -368,7 +350,6 @@ public class KeyChainGroup implements KeyBag {
     }
 
     public void markP2SHAddressAsUsed(Address address) {
-        checkState(isMarried());
         checkArgument(address.isP2SHAddress());
         RedeemData data = findRedeemDataFromScriptHash(address.getHash160());
         if (data == null)
@@ -412,7 +393,6 @@ public class KeyChainGroup implements KeyBag {
 
     /** If the given P2SH address is "current", advance it to a new one. */
     private void maybeMarkCurrentAddressAsUsed(Address address) {
-        checkState(isMarried());
         checkArgument(address.isP2SHAddress());
         for (Map.Entry<KeyChain.KeyPurpose, Address> entry : currentAddresses.entrySet()) {
             if (entry.getValue() != null && entry.getValue().equals(address)) {
@@ -495,7 +475,7 @@ public class KeyChainGroup implements KeyBag {
      * from multiple keychains in a multisig relationship.
      * @see org.bitcoinj.wallet.MarriedKeyChain
      */
-    public boolean isMarried() {
+    public final boolean isMarried() {
         return !chains.isEmpty() && getActiveKeyChain().isMarried();
     }
 
@@ -549,6 +529,34 @@ public class KeyChainGroup implements KeyBag {
     /** Returns true if the group is encrypted. */
     public boolean isEncrypted() {
         return keyCrypter != null;
+    }
+
+    /**
+     * Returns whether this chain has only watching keys (unencrypted keys with no private part). Mixed chains are
+     * forbidden.
+     * 
+     * @throws IllegalStateException if there are no keys, or if there is a mix between watching and non-watching keys.
+     */
+    public boolean isWatching() {
+        BasicKeyChain.State basicState = basic.isWatching();
+        BasicKeyChain.State activeState = BasicKeyChain.State.EMPTY;
+        if (!chains.isEmpty()) {
+            if (getActiveKeyChain().isWatching())
+                activeState = BasicKeyChain.State.WATCHING;
+            else
+                activeState = BasicKeyChain.State.REGULAR;
+        }
+        if (basicState == BasicKeyChain.State.EMPTY) {
+            if (activeState == BasicKeyChain.State.EMPTY)
+                throw new IllegalStateException("Empty key chain group: cannot answer isWatching() query");
+            return activeState == BasicKeyChain.State.WATCHING;
+        } else if (activeState == BasicKeyChain.State.EMPTY)
+            return basicState == BasicKeyChain.State.WATCHING;
+        else {
+            if (activeState != basicState)
+                throw new IllegalStateException("Mix of watching and non-watching keys in wallet");
+            return activeState == BasicKeyChain.State.WATCHING;
+        }
     }
 
     /** Returns the key crypter or null if the group is not encrypted. */
@@ -632,9 +640,13 @@ public class KeyChainGroup implements KeyBag {
         return result;
     }
 
-    public static KeyChainGroup fromProtobufUnencrypted(NetworkParameters params, List<Protos.Key> keys) throws UnreadableWalletException {
+    static KeyChainGroup fromProtobufUnencrypted(NetworkParameters params, List<Protos.Key> keys) throws UnreadableWalletException {
+        return fromProtobufUnencrypted(params, keys, new DefaultKeyChainFactory());
+    }
+
+    public static KeyChainGroup fromProtobufUnencrypted(NetworkParameters params, List<Protos.Key> keys, KeyChainFactory factory) throws UnreadableWalletException {
         BasicKeyChain basicKeyChain = BasicKeyChain.fromProtobufUnencrypted(keys);
-        List<DeterministicKeyChain> chains = DeterministicKeyChain.fromProtobuf(keys, null);
+        List<DeterministicKeyChain> chains = DeterministicKeyChain.fromProtobuf(keys, null, factory);
         EnumMap<KeyChain.KeyPurpose, DeterministicKey> currentKeys = null;
         if (!chains.isEmpty())
             currentKeys = createCurrentKeysMap(chains);
@@ -642,10 +654,14 @@ public class KeyChainGroup implements KeyBag {
         return new KeyChainGroup(params, basicKeyChain, chains, currentKeys, null);
     }
 
-    public static KeyChainGroup fromProtobufEncrypted(NetworkParameters params, List<Protos.Key> keys, KeyCrypter crypter) throws UnreadableWalletException {
+    static KeyChainGroup fromProtobufEncrypted(NetworkParameters params, List<Protos.Key> keys, KeyCrypter crypter) throws UnreadableWalletException {
+        return fromProtobufEncrypted(params, keys, crypter, new DefaultKeyChainFactory());
+    }
+
+    public static KeyChainGroup fromProtobufEncrypted(NetworkParameters params, List<Protos.Key> keys, KeyCrypter crypter, KeyChainFactory factory) throws UnreadableWalletException {
         checkNotNull(crypter);
         BasicKeyChain basicKeyChain = BasicKeyChain.fromProtobufEncrypted(keys, crypter);
-        List<DeterministicKeyChain> chains = DeterministicKeyChain.fromProtobuf(keys, crypter);
+        List<DeterministicKeyChain> chains = DeterministicKeyChain.fromProtobuf(keys, crypter, factory);
         EnumMap<KeyChain.KeyPurpose, DeterministicKey> currentKeys = null;
         if (!chains.isEmpty())
             currentKeys = createCurrentKeysMap(chains);
@@ -738,15 +754,17 @@ public class KeyChainGroup implements KeyBag {
         // kinds of KeyPurpose are introduced.
         if (activeChain.getIssuedExternalKeys() > 0) {
             DeterministicKey currentExternalKey = activeChain.getKeyByPath(
-                    ImmutableList.of(ChildNumber.ZERO_HARDENED, ChildNumber.ZERO, new ChildNumber(activeChain.getIssuedExternalKeys() - 1))
-            );
+                    HDUtils.append(
+                            HDUtils.concat(activeChain.getAccountPath(), DeterministicKeyChain.EXTERNAL_SUBPATH),
+                            new ChildNumber(activeChain.getIssuedExternalKeys() - 1)));
             currentKeys.put(KeyChain.KeyPurpose.RECEIVE_FUNDS, currentExternalKey);
         }
 
         if (activeChain.getIssuedInternalKeys() > 0) {
             DeterministicKey currentInternalKey = activeChain.getKeyByPath(
-                    ImmutableList.of(ChildNumber.ZERO_HARDENED, new ChildNumber(1), new ChildNumber(activeChain.getIssuedInternalKeys() - 1))
-            );
+                    HDUtils.append(
+                            HDUtils.concat(activeChain.getAccountPath(), DeterministicKeyChain.INTERNAL_SUBPATH),
+                            new ChildNumber(activeChain.getIssuedInternalKeys() - 1)));
             currentKeys.put(KeyChain.KeyPurpose.CHANGE, currentInternalKey);
         }
         return currentKeys;
@@ -754,7 +772,6 @@ public class KeyChainGroup implements KeyBag {
 
     private static void extractFollowingKeychains(List<DeterministicKeyChain> chains) {
         // look for following key chains and map them to the watch keys of followed keychains
-        Multimap<DeterministicKey, DeterministicKeyChain> followingKeychains = HashMultimap.create();
         List<DeterministicKeyChain> followingChains = Lists.newArrayList();
         for (Iterator<DeterministicKeyChain> it = chains.iterator(); it.hasNext(); ) {
             DeterministicKeyChain chain = it.next();
@@ -778,11 +795,8 @@ public class KeyChainGroup implements KeyBag {
             for (ECKey key : keys)
                 key.formatKeyWithAddress(includePrivateKeys, builder, params);
         }
-        List<String> chainStrs = Lists.newLinkedList();
-        for (DeterministicKeyChain chain : chains) {
-            chainStrs.add(chain.toString(includePrivateKeys, params));
-        }
-        builder.append(Joiner.on(String.format("%n")).join(chainStrs));
+        for (DeterministicKeyChain chain : chains)
+            builder.append(chain.toString(includePrivateKeys, params)).append('\n');
         return builder.toString();
     }
 

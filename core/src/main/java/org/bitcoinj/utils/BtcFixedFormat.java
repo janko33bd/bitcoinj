@@ -18,6 +18,7 @@ package org.bitcoinj.utils;
 
 import static org.bitcoinj.core.Coin.SMALLEST_UNIT_EXPONENT;
 import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.base.Objects;
 import java.math.BigInteger;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
@@ -31,7 +32,7 @@ import java.util.List;
  *
  * <p>By default, neither currency codes nor symbols are included in formatted values as
  * output, nor recognized in parsed values as input.  The can be overridden by applying a
- * custom pattern using either the {@link BtcFormat.Builder#localizedPattern} or {@link BtcFormat.Builder#localizedPattern()} methods, as described in the documentation for the {@link BtcFormat.Builder}
+ * custom pattern using either the {@link BtcFormat.Builder#localizedPattern} or {@link BtcFormat.Builder#localizedPattern} methods, as described in the documentation for the {@link BtcFormat.Builder}
  * class.<ol>
  *
  * <p>A more detailed explanation, including examples, is in the documentation for the
@@ -134,18 +135,14 @@ public final class BtcFixedFormat extends BtcFormat {
         if (o == this) return true;
         if (!(o instanceof BtcFixedFormat)) return false;
         BtcFixedFormat other = (BtcFixedFormat)o;
-        return other.scale() == scale() &&
-            other.decimalGroups.equals(decimalGroups) &&
-            super.equals(other);
+        return super.equals(other) && other.scale() == scale() && other.decimalGroups.equals(decimalGroups);
     }
 
     /** Return a hash code value for this instance.
      *  @see java.lang.Object#hashCode
      */
     @Override public int hashCode() {
-        int result = super.hashCode();
-        result = 31 * result + scale;
-        return result;
+        return Objects.hashCode(super.hashCode(), scale);
     }
 
     private static String prefixLabel(int scale) {
@@ -170,19 +167,6 @@ public final class BtcFixedFormat extends BtcFormat {
      */
     @Override
     public String toString() {
-        String label;
-        switch(scale) {
-        case COIN_SCALE:
-            label = "Coin-format";
-            break;
-        case MILLICOIN_SCALE:
-            label = "Millicoin-format";
-            break;
-        case MICROCOIN_SCALE:
-            label = "Microcoin-format";
-            break;
-        default: label = "Fixed (" + String.valueOf(scale) + ") format";
-        }
         return prefixLabel(scale) + "format " + pattern();
     }
 

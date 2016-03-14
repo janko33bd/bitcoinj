@@ -142,17 +142,14 @@ public final class BtcAutoFormat extends BtcFormat {
         int coinOffset = Math.max(SMALLEST_UNIT_EXPONENT - fractionPlaces, 0);
         BigDecimal inCoins = new BigDecimal(satoshis).movePointLeft(coinOffset);
         if (inCoins.remainder(ONE).compareTo(ZERO) == 0) {
-            inCoins.setScale(0);
             places = COIN_SCALE;
         } else {
             BigDecimal inMillis = inCoins.movePointRight(MILLICOIN_SCALE);
             if (inMillis.remainder(ONE).compareTo(ZERO) == 0) {
-                inMillis.setScale(0);
                 places = MILLICOIN_SCALE;
             } else {
                 BigDecimal inMicros = inCoins.movePointRight(MICROCOIN_SCALE);
                 if (inMicros.remainder(ONE).compareTo(ZERO) == 0) {
-                    inMicros.setScale(0);
                     places = MICROCOIN_SCALE;
                 } else {
                     // no way to avoid rounding: so what denomination gives smallest error?
@@ -189,9 +186,9 @@ public final class BtcAutoFormat extends BtcFormat {
       * Formatters for different locales will never be equal, even
       * if they behave identically. */
     @Override public boolean equals(Object o) {
-        if (o == this) return true;
+        if (this == o) return true;
         if (!(o instanceof BtcAutoFormat)) return false;
-        return super.equals((BtcAutoFormat)o);
+        return super.equals(o);
     }
 
     /**

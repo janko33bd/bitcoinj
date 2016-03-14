@@ -16,8 +16,10 @@
 
 package org.bitcoinj.jni;
 
+import org.bitcoinj.core.listeners.*;
 import org.bitcoinj.core.*;
 
+import javax.annotation.*;
 import java.util.List;
 import java.util.Set;
 
@@ -26,14 +28,14 @@ import java.util.Set;
  * this class using JNI on the native side, thus several instances of this can point to different actual
  * native implementations.
  */
-public class NativePeerEventListener implements PeerEventListener {
+public class NativePeerEventListener implements PeerConnectionEventListener, PeerDataEventListener, OnTransactionBroadcastListener {
     public long ptr;
 
     @Override
     public native void onPeersDiscovered(Set<PeerAddress> peerAddresses);
 
     @Override
-    public native void onBlocksDownloaded(Peer peer, Block block, int blocksLeft);
+    public native void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft);
 
     @Override
     public native void onChainDownloadStarted(Peer peer, int blocksLeft);

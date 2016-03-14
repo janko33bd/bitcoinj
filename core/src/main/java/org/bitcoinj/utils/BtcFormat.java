@@ -20,8 +20,10 @@ import org.bitcoinj.utils.BtcAutoFormat.Style;
 import static org.bitcoinj.utils.BtcAutoFormat.Style.*;
 
 import org.bitcoinj.core.Coin;
+import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import com.google.common.base.Strings;
 
 import java.math.BigDecimal;
@@ -409,7 +411,7 @@ import java.util.regex.Pattern;
  * specified by <code>µ฿</code>, <code>u฿</code>, <code>µB⃦</code>, <code>µɃ</code>,
  * <code>µBTC</code> or other appropriate permutations of those characters.  Additionally, if
  * either or both of a custom currency code or symbol is configured using {@link
- * BtcFormat.Builder#code()} or {@link BtcFormat.Builder.code()}, then such code or symbol will
+ * BtcFormat.Builder#code} or {@link BtcFormat.Builder#code}, then such code or symbol will
  * be recognized in addition to those recognized by default..
  *
  * <p>Instances of this class that recognize currency signs will recognize both currency
@@ -674,7 +676,8 @@ public abstract class BtcFormat extends Format {
         public Builder pattern(String val) {
             if (localizedPattern != "")
                 throw new IllegalStateException("You cannot invoke both pattern() and localizedPattern()");
-            pattern = val; return this;
+            pattern = val;
+            return this;
         } 
 
         /** Use the given localized-pattern for formatting and parsing.  The format of this
@@ -924,7 +927,7 @@ public abstract class BtcFormat extends Format {
         for (int e : elements) {
             checkArgument(e > 0, "Size of decimal group must be at least one.");
             list.add(e);
-        };
+        }
         return list;
     }
 
@@ -1157,8 +1160,7 @@ public abstract class BtcFormat extends Format {
      * @throws IllegalArgumentException if the number of fraction places is negative.
      */
     public String format(Object qty, int minDecimals, int... fractionGroups) {
-        return format(qty, new StringBuffer(), new FieldPosition(0), minDecimals, boxAsList(fractionGroups)).
-               toString();
+        return format(qty, new StringBuffer(), new FieldPosition(0), minDecimals, boxAsList(fractionGroups)).toString();
     }
 
     /**
@@ -1231,7 +1233,7 @@ public abstract class BtcFormat extends Format {
      *  @return The minimum and maximum fractional places settings that the
      *          formatter had before this change, as an ImmutableList. */
     private static ImmutableList<Integer> setFormatterDigits(DecimalFormat formatter, int min, int max) {
-        ImmutableList<Integer> ante = ImmutableList.<Integer>of(
+        ImmutableList<Integer> ante = ImmutableList.of(
             formatter.getMinimumFractionDigits(),
             formatter.getMaximumFractionDigits()
         );
@@ -1247,7 +1249,7 @@ public abstract class BtcFormat extends Format {
      *  @param unitCount      the number of monetary units to be formatted
      *  @param scale          the denomination of those units as the decimal-place shift from coins
      *  @param minDecimals    the minimum number of fractional decimal places
-     *  @param fractiongroups the sizes of option fractional decimal-place groups
+     *  @param fractionGroups the sizes of option fractional decimal-place groups
      */
     private static int calculateFractionPlaces(
         BigDecimal unitCount, int scale, int minDecimals, List<Integer> fractionGroups)
@@ -1358,7 +1360,7 @@ public abstract class BtcFormat extends Format {
       * forget to put the symbols back otherwise equals(), hashCode() and immutability will
       * break.  */
     private static DecimalFormatSymbols setSymbolAndCode(DecimalFormat numberFormat, String symbol, String code) {
-        assert Thread.holdsLock(numberFormat);
+        checkState(Thread.holdsLock(numberFormat));
         DecimalFormatSymbols fs = numberFormat.getDecimalFormatSymbols();
         DecimalFormatSymbols ante = (DecimalFormatSymbols)fs.clone();
         fs.setInternationalCurrencySymbol(code);
@@ -1379,8 +1381,8 @@ public abstract class BtcFormat extends Format {
      * @return The DecimalFormatSymbols before changing
      */
     protected static void prefixUnitsIndicator(DecimalFormat numberFormat, int scale) {
-        assert Thread.holdsLock(numberFormat); // make sure caller intends to reset before changing
-        DecimalFormatSymbols fs = (DecimalFormatSymbols)numberFormat.getDecimalFormatSymbols();
+        checkState(Thread.holdsLock(numberFormat)); // make sure caller intends to reset before changing
+        DecimalFormatSymbols fs = numberFormat.getDecimalFormatSymbols();
         setSymbolAndCode(numberFormat,
             prefixSymbol(fs.getCurrencySymbol(), scale), prefixCode(fs.getInternationalCurrencySymbol(), scale)
         );
@@ -1538,13 +1540,13 @@ public abstract class BtcFormat extends Format {
 
     /** Return a representation of the pattern used by this instance for formatting and
      *  parsing.  The format is similar to, but not the same as the format recognized by the
-     *  {@link Builder.pattern()} and {@link Builder.localizedPattern()} methods.  The pattern
+     *  {@link Builder#pattern} and {@link Builder#localizedPattern} methods.  The pattern
      *  returned by this method is localized, any currency signs expressed are literally, and
      *  optional fractional decimal places are shown grouped in parentheses. */
     public String pattern() { synchronized(numberFormat) {
-        StringBuffer groups = new StringBuffer();
+        StringBuilder groups = new StringBuilder();
         for (int group : decimalGroups) {
-            groups.append("(" + Strings.repeat("#",group) + ")");
+            groups.append("(").append(Strings.repeat("#", group)).append(")");
         }
         DecimalFormatSymbols s = numberFormat.getDecimalFormatSymbols();
         String digit = String.valueOf(s.getDigit());
@@ -1587,12 +1589,7 @@ public abstract class BtcFormat extends Format {
      *  @see java.lang.Object#hashCode
      */
     @Override public int hashCode() {
-        int result = 17;
-        result = 31 * result + pattern().hashCode();
-        result = 31 * result + symbols().hashCode();
-        result = 31 * result + minimumFractionDigits;
-        result = 31 * result + decimalGroups.hashCode();
-        return result;
+        return Objects.hashCode(pattern(), symbols(), minimumFractionDigits, decimalGroups);
     }
 
 }

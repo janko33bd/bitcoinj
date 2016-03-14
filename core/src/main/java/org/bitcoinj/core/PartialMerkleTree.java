@@ -1,6 +1,7 @@
 /**
  * Copyright 2012 The Bitcoin Developers
  * Copyright 2012 Matt Corallo
+ * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.bitcoinj.core.Utils.*;
+import com.google.common.base.Objects;
 
 /**
  * <p>A data structure that contains proofs of block inclusion for one or more transactions, in an efficient manner.</p>
@@ -35,21 +37,23 @@ import static org.bitcoinj.core.Utils.*;
  * depth-first traversal is performed, consuming bits and hashes as they were written during encoding.</p>
  *
  * <p>The serialization is fixed and provides a hard guarantee about the encoded size,
- * <tt>SIZE <= 10 + ceil(32.25*N)</tt> where N represents the number of leaf nodes of the partial tree. N itself
+ * <tt>SIZE &lt;= 10 + ceil(32.25*N)</tt> where N represents the number of leaf nodes of the partial tree. N itself
  * is bounded by:</p>
  *
  * <p>
- * N <= total_transactions<br>
- * N <= 1 + matched_transactions*tree_height
+ * N &lt;= total_transactions<br>
+ * N &lt;= 1 + matched_transactions*tree_height
  * </p>
  *
  * <p><pre>The serialization format:
  *  - uint32     total_transactions (4 bytes)
  *  - varint     number of hashes   (1-3 bytes)
- *  - uint256[]  hashes in depth-first order (<= 32*N bytes)
+ *  - uint256[]  hashes in depth-first order (&lt;= 32*N bytes)
  *  - varint     number of bytes of flag bits (1-3 bytes)
- *  - byte[]     flag bits, packed per 8 in a byte, least significant bit first (<= 2*N-1 bits)
+ *  - byte[]     flag bits, packed per 8 in a byte, least significant bit first (&lt;= 2*N-1 bits)
  * The size constraints follow from this.</pre></p>
+ * 
+ * <p>Instances of this class are not safe for use by multiple threads.</p>
  */
 public class PartialMerkleTree extends Message {
     // the total number of transactions in the block
@@ -101,14 +105,14 @@ public class PartialMerkleTree extends Message {
 
         stream.write(new VarInt(hashes.size()).encode());
         for (Sha256Hash hash : hashes)
-            stream.write(reverseBytes(hash.getBytes()));
+            stream.write(hash.getReversedBytes());
 
         stream.write(new VarInt(matchedChildBits.length).encode());
         stream.write(matchedChildBits);
     }
 
     @Override
-    void parse() throws ProtocolException {
+    protected void parse() throws ProtocolException {
         transactionCount = (int)readUint32();
 
         int nHashes = (int) readVarInt();
@@ -166,11 +170,6 @@ public class PartialMerkleTree extends Message {
         return combineLeftRight(left.getBytes(), right.getBytes());
     }
 
-    @Override
-    protected void parseLite() {
-        
-    }
-    
     // helper function to efficiently calculate the number of nodes at given height in the merkle tree
     private static int getTreeWidth(int transactionCount, int height) {
         return (transactionCount + (1 << height) - 1) >> height;
@@ -214,9 +213,9 @@ public class PartialMerkleTree extends Message {
     }
 
     private static Sha256Hash combineLeftRight(byte[] left, byte[] right) {
-        return new Sha256Hash(reverseBytes(doubleDigestTwoBuffers(
-                reverseBytes(left), 0, 32,
-                reverseBytes(right), 0, 32)));
+        return Sha256Hash.wrapReversed(Sha256Hash.hashTwice(
+            reverseBytes(left), 0, 32,
+            reverseBytes(right), 0, 32));
     }
 
     /**
@@ -269,22 +268,14 @@ public class PartialMerkleTree extends Message {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
-        PartialMerkleTree tree = (PartialMerkleTree) o;
-
-        if (transactionCount != tree.transactionCount) return false;
-        if (!hashes.equals(tree.hashes)) return false;
-        if (!Arrays.equals(matchedChildBits, tree.matchedChildBits)) return false;
-
-        return true;
+        PartialMerkleTree other = (PartialMerkleTree) o;
+        return transactionCount == other.transactionCount && hashes.equals(other.hashes)
+            && Arrays.equals(matchedChildBits, other.matchedChildBits);
     }
 
     @Override
     public int hashCode() {
-        int result = transactionCount;
-        result = 31 * result + Arrays.hashCode(matchedChildBits);
-        result = 31 * result + hashes.hashCode();
-        return result;
+        return Objects.hashCode(transactionCount, hashes, Arrays.hashCode(matchedChildBits));
     }
 
     @Override

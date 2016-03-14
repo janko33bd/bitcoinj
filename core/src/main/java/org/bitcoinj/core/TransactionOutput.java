@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2011 Google Inc.
  * Copyright 2014 Andreas Schildbach
  *
@@ -17,30 +17,24 @@
 
 package org.bitcoinj.core;
 
-import org.bitcoinj.script.Script;
-import org.bitcoinj.script.ScriptBuilder;
+import com.google.common.base.Objects;
+import org.bitcoinj.script.*;
+import org.slf4j.*;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nullable;
-
-import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.io.OutputStream;
-import java.io.Serializable;
-import java.lang.ref.WeakReference;
-import java.util.Arrays;
+import javax.annotation.*;
+import java.io.*;
+import java.util.*;
 
 import static com.google.common.base.Preconditions.*;
 
 /**
- * A TransactionOutput message contains a scriptPubKey that controls who is able to spend its value. It is a sub-part
- * of the Transaction message.
+ * <p>A TransactionOutput message contains a scriptPubKey that controls who is able to spend its value. It is a sub-part
+ * of the Transaction message.</p>
+ * 
+ * <p>Instances of this class are not safe for use by multiple threads.</p>
  */
-public class TransactionOutput extends ChildMessage implements Serializable {
+public class TransactionOutput extends ChildMessage {
     private static final Logger log = LoggerFactory.getLogger(TransactionOutput.class);
-    private static final long serialVersionUID = -590332479859256824L;
 
     // The output's value is kept as a native type in order to save class instances.
     private long value;
@@ -50,16 +44,16 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     private byte[] scriptBytes;
 
     // The script bytes are parsed and turned into a Script on demand.
-    private transient WeakReference<Script> scriptPubKey;
+    private Script scriptPubKey;
 
-    // These fields are Java serialized but not Bitcoin serialized. They are used for tracking purposes in our wallet
+    // These fields are not Bitcoin serialized. They are used for tracking purposes in our wallet
     // only. If set to true, this output is counted towards our balance. If false and spentBy is null the tx output
     // was owned by us and was sent to somebody else. If false and spentBy is set it means this output was owned by
     // us and used in one of our own transactions (eg, because it is a change output).
     private boolean availableForSpending;
     @Nullable private TransactionInput spentBy;
 
-    private transient int scriptLen;
+    private int scriptLen;
 
     /**
      * Deserializes a transaction output message. This is usually part of a transaction message.
@@ -77,15 +71,11 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      * @param params NetworkParameters object.
      * @param payload Bitcoin protocol formatted byte array containing message content.
      * @param offset The location of the first payload byte within the array.
-     * @param parseLazy Whether to perform a full parse immediately or delay until a read is requested.
-     * @param parseRetain Whether to retain the backing byte array for quick reserialization.  
-     * If true and the backing byte array is invalidated due to modification of a field then 
-     * the cached bytes may be repopulated and retained if the message is serialized again in the future.
+     * @param serializer the serializer to use for this message.
      * @throws ProtocolException
      */
-    public TransactionOutput(NetworkParameters params, @Nullable Transaction parent, byte[] payload, int offset,
-                             boolean parseLazy, boolean parseRetain) throws ProtocolException {
-        super(params, payload, offset, parent, parseLazy, parseRetain, UNKNOWN_LENGTH);
+    public TransactionOutput(NetworkParameters params, @Nullable Transaction parent, byte[] payload, int offset, MessageSerializer serializer) throws ProtocolException {
+        super(params, payload, offset, parent, serializer, UNKNOWN_LENGTH);
         availableForSpending = true;
     }
 
@@ -112,7 +102,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
         // Negative values obviously make no sense, except for -1 which is used as a sentinel value when calculating
         // SIGHASH_SINGLE signatures, so unfortunately we have to allow that here.
         checkArgument(value.signum() >= 0 || value.equals(Coin.NEGATIVE_SATOSHI), "Negative values not allowed");
-        checkArgument(value.compareTo(NetworkParameters.MAX_MONEY) < 0, "Values larger than MAX_MONEY not allowed");
+        checkArgument(!params.hasMaxMoney() || value.compareTo(params.getMaxMoney()) <= 0, "Values larger than MAX_MONEY not allowed");
         this.value = value.value;
         this.scriptBytes = scriptBytes;
         setParent(parent);
@@ -121,17 +111,10 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     }
 
     public Script getScriptPubKey() throws ScriptException {
-        // Quick hack to try and reduce memory consumption on Androids. SoftReference is the same as WeakReference
-        // on Dalvik (by design), so this arrangement just means that we can avoid the cost of re-parsing the script
-        // bytes if getScriptPubKey is called multiple times in quick succession in between garbage collections.
-        Script script = scriptPubKey == null ? null : scriptPubKey.get();
-        if (script == null) {
-            maybeParse();
-            script = new Script(scriptBytes);
-            scriptPubKey = new WeakReference<Script>(script);
-            return script;
+        if (scriptPubKey == null) {
+            scriptPubKey = new Script(scriptBytes);
         }
-        return script;
+        return scriptPubKey;
     }
 
     /**
@@ -172,21 +155,16 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     }
 
     @Override
-    protected void parseLite() throws ProtocolException {
+    protected void parse() throws ProtocolException {
         value = readInt64();
         scriptLen = (int) readVarInt();
         length = cursor - offset + scriptLen;
-    }
-
-    @Override
-    void parse() throws ProtocolException {
         scriptBytes = readBytes(scriptLen);
     }
 
     @Override
     protected void bitcoinSerializeToStream(OutputStream stream) throws IOException {
         checkNotNull(scriptBytes);
-        maybeParse();
         Utils.int64ToByteStreamLE(value, stream);
         // TODO: Move script serialization into the Script class, where it belongs.
         stream.write(new VarInt(scriptBytes.length).encode());
@@ -198,7 +176,6 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      * receives.
      */
     public Coin getValue() {
-        maybeParse();
         try {
             return Coin.valueOf(value);
         } catch (IllegalArgumentException e) {
@@ -220,16 +197,27 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      * over the parents list to discover this.
      */
     public int getIndex() {
-        for (int i = 0; i < getParentTransaction().getOutputs().size(); i++) {
-            if (getParentTransaction().getOutputs().get(i) == this)
+        List<TransactionOutput> outputs = getParentTransaction().getOutputs();
+        for (int i = 0; i < outputs.size(); i++) {
+            if (outputs.get(i) == this)
                 return i;
         }
         throw new IllegalStateException("Output linked to wrong parent transaction?");
     }
 
     /**
-     * <p>Gets the minimum value for a txout of this size to be considered non-dust by a reference client
-     * (and thus relayed). See: CTxOut::IsDust() in the reference client. The assumption is that any output that would
+     * Will this transaction be relayable and mined by default miners?
+     */
+    public boolean isDust() {
+        // Transactions that are OP_RETURN can't be dust regardless of their value.
+        if (getScriptPubKey().isOpReturn())
+            return false;
+        return getValue().isLessThan(getMinNonDustValue());
+    }
+
+    /**
+     * <p>Gets the minimum value for a txout of this size to be considered non-dust by Bitcoin Core
+     * (and thus relayed). See: CTxOut::IsDust() in Bitcoin Core. The assumption is that any output that would
      * consume more than a third of its value in fees is not something the Bitcoin system wants to deal with right now,
      * so we call them "dust outputs" and they're made non standard. The choice of one third is somewhat arbitrary and
      * may change in future.</p>
@@ -237,23 +225,21 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      * <p>You probably should use {@link org.bitcoinj.core.TransactionOutput#getMinNonDustValue()} which uses
      * a safe fee-per-kb by default.</p>
      *
-     * @param feePerKbRequired The fee required per kilobyte. Note that this is the same as the reference client's -minrelaytxfee * 3
-     *                         If you want a safe default, use {@link Transaction#REFERENCE_DEFAULT_MIN_TX_FEE}*3
+     * @param feePerKb The fee required per kilobyte. Note that this is the same as Bitcoin Core's -minrelaytxfee * 3
      */
-    public Coin getMinNonDustValue(Coin feePerKbRequired) {
+    public Coin getMinNonDustValue(Coin feePerKb) {
         // A typical output is 33 bytes (pubkey hash + opcodes) and requires an input of 148 bytes to spend so we add
         // that together to find out the total amount of data used to transfer this amount of value. Note that this
-        // formula is wrong for anything that's not a pay-to-address output, unfortunately, we must follow the reference
-        // clients wrongness in order to ensure we're considered standard. A better formula would either estimate the
+        // formula is wrong for anything that's not a pay-to-address output, unfortunately, we must follow Bitcoin Core's
+        // wrongness in order to ensure we're considered standard. A better formula would either estimate the
         // size of data needed to satisfy all different script types, or just hard code 33 below.
-        final long size = this.bitcoinSerialize().length + 148;
-        Coin[] nonDustAndRemainder = feePerKbRequired.multiply(size).divideAndRemainder(1000);
-        return nonDustAndRemainder[1].equals(Coin.ZERO) ? nonDustAndRemainder[0] : nonDustAndRemainder[0].add(Coin.SATOSHI);
+        final long size = this.unsafeBitcoinSerialize().length + 148;
+        return feePerKb.multiply(size).divide(1000);
     }
 
     /**
      * Returns the minimum value for this output to be considered "not dust", i.e. the transaction will be relayable
-     * and mined by default miners. For normal pay to address outputs, this is 546 satoshis, the same as
+     * and mined by default miners. For normal pay to address outputs, this is 2730 satoshis, the same as
      * {@link Transaction#MIN_NONDUST_OUTPUT}.
      */
     public Coin getMinNonDustValue() {
@@ -270,7 +256,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
         availableForSpending = false;
         spentBy = input;
         if (parent != null)
-            if (log.isDebugEnabled()) log.debug("Marked {}:{} as spent by {}", getParentTransaction().getHash(), getIndex(), input);
+            if (log.isDebugEnabled()) log.debug("Marked {}:{} as spent by {}", getParentTransactionHash(), getIndex(), input);
         else
             if (log.isDebugEnabled()) log.debug("Marked floating output as spent by {}", input);
     }
@@ -280,7 +266,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      */
     public void markAsUnspent() {
         if (parent != null)
-            if (log.isDebugEnabled()) log.debug("Un-marked {}:{} as spent by {}", getParentTransaction().getHash(), getIndex(), spentBy);
+            if (log.isDebugEnabled()) log.debug("Un-marked {}:{} as spent by {}", getParentTransactionHash(), getIndex(), spentBy);
         else
             if (log.isDebugEnabled()) log.debug("Un-marked floating output as spent by {}", spentBy);
         availableForSpending = true;
@@ -303,7 +289,6 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      * @return the scriptBytes
     */
     public byte[] getScriptBytes() {
-        maybeParse();
         return scriptBytes;
     }
 
@@ -367,8 +352,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
                 buf.append(" to multisig");
             else
                 buf.append(" (unknown type)");
-            buf.append(" script:");
-            buf.append(script);
+            buf.append(" script:").append(script);
             return buf.toString();
         } catch (ScriptException e) {
             throw new RuntimeException(e);
@@ -388,10 +372,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      */
     @Nullable
     public Transaction getParentTransaction() {
-        if(parent != null) {
-            return (Transaction) parent;
-        }
-        return null;
+        return (Transaction)parent;
     }
 
     /**
@@ -399,10 +380,7 @@ public class TransactionOutput extends ChildMessage implements Serializable {
      */
     @Nullable
     public Sha256Hash getParentTransactionHash() {
-        if (getParentTransaction() != null) {
-            return getParentTransaction().getHash();
-        }
-        return null;
+        return parent == null ? null : parent.getHash();
     }
 
     /**
@@ -423,16 +401,6 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     }
 
     /**
-     * Ensure object is fully parsed before invoking java serialization.  The backing byte array
-     * is transient so if the object has parseLazy = true and hasn't invoked checkParse yet
-     * then data will be lost during serialization.
-     */
-    private void writeObject(ObjectOutputStream out) throws IOException {
-        maybeParse();
-        out.defaultWriteObject();
-    }
-
-    /**
      * Returns a new {@link TransactionOutPoint}, which is essentially a structure pointing to this output.
      * Requires that this output is not detached.
      */
@@ -449,18 +417,13 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
         TransactionOutput other = (TransactionOutput) o;
-
-        if (!Arrays.equals(scriptBytes, other.scriptBytes)) return false;
-        if (value != other.value) return false;
-        if (parent != null && parent != other.parent) return false;
-
-        return true;
+        return value == other.value && (parent == null || parent == other.parent)
+            && Arrays.equals(scriptBytes, other.scriptBytes);
     }
 
     @Override
     public int hashCode() {
-        return 31 * (int) value + (scriptBytes != null ? Arrays.hashCode(scriptBytes) : 0);
+        return Objects.hashCode(value, parent, Arrays.hashCode(scriptBytes));
     }
 }

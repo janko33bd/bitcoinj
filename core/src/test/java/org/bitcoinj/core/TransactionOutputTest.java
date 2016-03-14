@@ -4,7 +4,6 @@ import com.google.common.collect.ImmutableList;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
-import org.bitcoinj.script.ScriptOpCodes;
 import org.bitcoinj.testing.TestWithWallet;
 import org.hamcrest.CoreMatchers;
 import org.junit.After;
@@ -35,7 +34,7 @@ public class TransactionOutputTest extends TestWithWallet {
         ECKey otherKey = new ECKey();
 
         // Create multi-sig transaction
-        Transaction multiSigTransaction = new Transaction(params);
+        Transaction multiSigTransaction = new Transaction(PARAMS);
         ImmutableList<ECKey> keys = ImmutableList.of(myKey, otherKey);
 
         Script scriptPubKey = ScriptBuilder.createMultiSigOutputScript(2, keys);
@@ -51,7 +50,7 @@ public class TransactionOutputTest extends TestWithWallet {
     @Test
     public void testP2SHOutputScript() throws Exception {
         String P2SHAddressString = "35b9vsyH1KoFT5a5KtrKusaCcPLkiSo1tU";
-        Address P2SHAddress = new Address(MainNetParams.get(), P2SHAddressString);
+        Address P2SHAddress = Address.fromBase58(MainNetParams.get(), P2SHAddressString);
         Script script = ScriptBuilder.createOutputScript(P2SHAddress);
         Transaction tx = new Transaction(MainNetParams.get());
         tx.addOutput(Coin.COIN, script);
@@ -61,9 +60,14 @@ public class TransactionOutputTest extends TestWithWallet {
     @Test
     public void getAddressTests() throws Exception {
         Transaction tx = new Transaction(MainNetParams.get());
-        Script script = new ScriptBuilder().op(ScriptOpCodes.OP_RETURN).data("hello world!".getBytes()).build();
-        tx.addOutput(Coin.CENT, script);
-        assertNull(tx.getOutput(0).getAddressFromP2SH(params));
-        assertNull(tx.getOutput(0).getAddressFromP2PKHScript(params));
+        tx.addOutput(Coin.CENT, ScriptBuilder.createOpReturnScript("hello world!".getBytes()));
+        assertNull(tx.getOutput(0).getAddressFromP2SH(PARAMS));
+        assertNull(tx.getOutput(0).getAddressFromP2PKHScript(PARAMS));
+    }
+
+    @Test
+    public void getMinNonDustValue() throws Exception {
+        TransactionOutput payToAddressOutput = new TransactionOutput(PARAMS, null, Coin.COIN, myAddress);
+        assertEquals(Transaction.MIN_NONDUST_OUTPUT, payToAddressOutput.getMinNonDustValue());
     }
 }

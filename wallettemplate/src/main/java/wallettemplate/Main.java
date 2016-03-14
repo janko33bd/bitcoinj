@@ -1,9 +1,10 @@
 package wallettemplate;
 
+import com.google.common.util.concurrent.*;
+import javafx.scene.input.*;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.kits.WalletAppKit;
-import org.bitcoinj.params.RegTestParams;
-import org.bitcoinj.params.TestNet3Params;
+import org.bitcoinj.params.*;
 import org.bitcoinj.utils.BriefLogFormatter;
 import org.bitcoinj.utils.Threading;
 import org.bitcoinj.wallet.DeterministicSeed;
@@ -27,9 +28,11 @@ import java.net.URL;
 import static wallettemplate.utils.GuiUtils.*;
 
 public class Main extends Application {
-    public static String APP_NAME = "WalletTemplate";
+    public static NetworkParameters params = MainNetParams.get();
+    public static final String APP_NAME = "WalletTemplate";
+    private static final String WALLET_FILE_NAME = APP_NAME.replaceAll("[^a-zA-Z0-9.-]", "_") + "-"
+            + params.getPaymentProtocolId();
 
-    public static NetworkParameters params = TestNet3Params.get();
     public static WalletAppKit bitcoin;
     public static Main instance;
 
@@ -37,6 +40,7 @@ public class Main extends Application {
     private Pane mainUI;
     public MainController controller;
     public NotificationBarPane notificationBar;
+    public Stage mainWindow;
 
     @Override
     public void start(Stage mainWindow) throws Exception {
@@ -49,6 +53,7 @@ public class Main extends Application {
     }
 
     private void realStart(Stage mainWindow) throws IOException {
+        this.mainWindow = mainWindow;
         instance = this;
         // Show the crash dialog for any exceptions that we don't handle and that hit the main loop.
         GuiUtils.handleCrashesOnThisThread();
@@ -95,20 +100,27 @@ public class Main extends Application {
 
         mainWindow.show();
 
+        WalletSetPasswordController.estimateKeyDerivationTimeMsec();
+
+        bitcoin.addListener(new Service.Listener() {
+            @Override
+            public void failed(Service.State from, Throwable failure) {
+                GuiUtils.crashAlert(failure);
+            }
+        }, Platform::runLater);
         bitcoin.startAsync();
+
+        scene.getAccelerators().put(KeyCombination.valueOf("Shortcut+F"), () -> bitcoin.peerGroup().getDownloadPeer().close());
     }
 
     public void setupWalletKit(@Nullable DeterministicSeed seed) {
         // If seed is non-null it means we are restoring from backup.
-        bitcoin = new WalletAppKit(params, new File("."), APP_NAME) {
+        bitcoin = new WalletAppKit(params, new File("."), WALLET_FILE_NAME) {
             @Override
             protected void onSetupCompleted() {
                 // Don't make the user wait for confirmations for now, as the intention is they're sending it
                 // their own money!
                 bitcoin.wallet().allowSpendingUnconfirmedTransactions();
-                if (params != RegTestParams.get())
-                    bitcoin.peerGroup().setMaxConnections(11);
-                bitcoin.peerGroup().setBloomFilterFalsePositiveRate(0.00001);
                 Platform.runLater(controller::onBitcoinSetup);
             }
         };

@@ -1,5 +1,6 @@
-/**
+/*
  * Copyright 2013 Matt Corallo
+ * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,17 +17,20 @@
 
 package org.bitcoinj.core;
 
+import com.google.common.base.Objects;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Locale;
 
 /**
- * A message sent by nodes when a message we sent was rejected (ie a transaction had too little fee/was invalid/etc)
+ * <p>A message sent by nodes when a message we sent was rejected (ie a transaction had too little fee/was invalid/etc).</p>
+ * 
+ * <p>Instances of this class are not safe for use by multiple threads.</p>
  */
 public class RejectMessage extends Message {
-    private static final long serialVersionUID = -5246995579800334336L;
 
     private String message, reason;
-    public static enum RejectCode {
+    public enum RejectCode {
         /** The message was not able to be parsed */
         MALFORMED((byte) 0x01),
         /** The message described an invalid object */
@@ -40,7 +44,7 @@ public class RejectMessage extends Message {
         DUPLICATE((byte) 0x12),
         /**
          * The message described an object was not standard and was thus not accepted.
-         * The reference client has a concept of standard transaction forms, which describe scripts and encodings which
+         * Bitcoin Core has a concept of standard transaction forms, which describe scripts and encodings which
          * it is willing to relay further. Other transactions are neither relayed nor mined, though they are considered
          * valid if they appear in a block.
          */
@@ -72,24 +76,23 @@ public class RejectMessage extends Message {
         super(params, payload, 0);
     }
 
-    public RejectMessage(NetworkParameters params, byte[] payload, boolean parseLazy, boolean parseRetain, int length) throws ProtocolException {
-        super(params, payload, 0, parseLazy, parseRetain, length);
+    /** Constructs a reject message that fingers the object with the given hash as rejected for the given reason. */
+    public RejectMessage(NetworkParameters params, RejectCode code, Sha256Hash hash, String message, String reason) throws ProtocolException {
+        super(params);
+        this.code = code;
+        this.messageHash = hash;
+        this.message = message;
+        this.reason = reason;
     }
 
     @Override
-    protected void parseLite() throws ProtocolException {
+    protected void parse() throws ProtocolException {
         message = readStr();
         code = RejectCode.fromCode(readBytes(1)[0]);
         reason = readStr();
         if (message.equals("block") || message.equals("tx"))
             messageHash = readHash();
         length = cursor - offset;
-    }
-
-    @Override
-    public void parse() throws ProtocolException {
-        if (length == UNKNOWN_LENGTH)
-            parseLite();
     }
 
     @Override
@@ -101,8 +104,8 @@ public class RejectMessage extends Message {
         byte[] reasonBytes = reason.getBytes("UTF-8");
         stream.write(new VarInt(reasonBytes.length).encode());
         stream.write(reasonBytes);
-        if (message.equals("block") || message.equals("tx"))
-            stream.write(messageHash.getBytes());
+        if ("block".equals(message) || "tx".equals(message))
+            stream.write(messageHash.getReversedBytes());
     }
 
     /**
@@ -110,7 +113,6 @@ public class RejectMessage extends Message {
      * Note that this is ENTIRELY UNTRUSTED and should be sanity-checked before it is printed or processed.
      */
     public String getRejectedMessage() {
-        ensureParsed();
         return message;
     }
 
@@ -118,7 +120,6 @@ public class RejectMessage extends Message {
      * Provides the hash of the rejected object (if getRejectedMessage() is either "tx" or "block"), otherwise null.
      */
     public Sha256Hash getRejectedObjectHash() {
-        ensureParsed();
         return messageHash;
     }
 
@@ -147,12 +148,8 @@ public class RejectMessage extends Message {
     @Override
     public String toString() {
         Sha256Hash hash = getRejectedObjectHash();
-        if (hash != null)
-            return String.format("Reject: %s %s for reason '%s' (%d)", getRejectedMessage(), getRejectedObjectHash(),
-                getReasonString(), getReasonCode().code);
-        else
-            return String.format("Reject: %s for reason '%s' (%d)", getRejectedMessage(),
-                    getReasonString(), getReasonCode().code);
+        return String.format(Locale.US, "Reject: %s %s for reason '%s' (%d)", getRejectedMessage(),
+            hash != null ? hash : "", getReasonString(), getReasonCode().code);
     }
 
     @Override
@@ -160,18 +157,12 @@ public class RejectMessage extends Message {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RejectMessage other = (RejectMessage) o;
-        return message.equals(other.message) &&
-               code.equals(other.code) &&
-               reason.equals(other.reason) &&
-               messageHash.equals(other.messageHash);
+        return message.equals(other.message) && code.equals(other.code)
+            && reason.equals(other.reason) && messageHash.equals(other.messageHash);
     }
 
     @Override
     public int hashCode() {
-        int result = message.hashCode();
-        result = 31 * result + reason.hashCode();
-        result = 31 * result + code.hashCode();
-        result = 31 * result + messageHash.hashCode();
-        return result;
+        return Objects.hashCode(message, code, reason, messageHash);
     }
 }

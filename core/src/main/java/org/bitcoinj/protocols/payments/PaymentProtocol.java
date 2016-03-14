@@ -20,7 +20,8 @@ package org.bitcoinj.protocols.payments;
 import org.bitcoinj.core.*;
 import org.bitcoinj.crypto.X509Utils;
 import org.bitcoinj.script.ScriptBuilder;
-import com.google.common.base.Objects;
+
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
@@ -135,7 +136,7 @@ public class PaymentProtocol {
             final Protos.PaymentRequest paymentRequestToSign = paymentRequest.build();
 
             final String algorithm;
-            if (privateKey.getAlgorithm().equalsIgnoreCase("RSA"))
+            if ("RSA".equalsIgnoreCase(privateKey.getAlgorithm()))
                 algorithm = "SHA256withRSA";
             else
                 throw new IllegalStateException(privateKey.getAlgorithm());
@@ -159,19 +160,20 @@ public class PaymentProtocol {
      * @return verification data, or null if no PKI method was specified in the {@link Protos.PaymentRequest}.
      * @throws PaymentProtocolException if payment request could not be verified.
      */
-    public static @Nullable PkiVerificationData verifyPaymentRequestPki(Protos.PaymentRequest paymentRequest, KeyStore trustStore)
+    @Nullable
+    public static PkiVerificationData verifyPaymentRequestPki(Protos.PaymentRequest paymentRequest, KeyStore trustStore)
             throws PaymentProtocolException {
         List<X509Certificate> certs = null;
         try {
             final String pkiType = paymentRequest.getPkiType();
-            if (pkiType.equals("none"))
+            if ("none".equals(pkiType))
                 // Nothing to verify. Everything is fine. Move along.
                 return null;
 
             String algorithm;
-            if (pkiType.equals("x509+sha256"))
+            if ("x509+sha256".equals(pkiType))
                 algorithm = "SHA256withRSA";
-            else if (pkiType.equals("x509+sha1"))
+            else if ("x509+sha1".equals(pkiType))
                 algorithm = "SHA1withRSA";
             else
                 throw new PaymentProtocolException.InvalidPkiType("Unsupported PKI type: " + pkiType);
@@ -270,7 +272,7 @@ public class PaymentProtocol {
 
         @Override
         public String toString() {
-            return Objects.toStringHelper(this)
+            return MoreObjects.toStringHelper(this)
                     .add("displayName", displayName)
                     .add("rootAuthorityName", rootAuthorityName)
                     .add("merchantSigningKey", merchantSigningKey)
@@ -340,7 +342,7 @@ public class PaymentProtocol {
             Protos.Payment paymentMessage) {
         final List<Transaction> transactions = new ArrayList<Transaction>(paymentMessage.getTransactionsCount());
         for (final ByteString transaction : paymentMessage.getTransactionsList())
-            transactions.add(new Transaction(params, transaction.toByteArray()));
+            transactions.add(params.getDefaultSerializer().makeTransaction(transaction.toByteArray()));
         return transactions;
     }
 
@@ -398,7 +400,8 @@ public class PaymentProtocol {
     public static Protos.Output createPayToAddressOutput(@Nullable Coin amount, Address address) {
         Protos.Output.Builder output = Protos.Output.newBuilder();
         if (amount != null) {
-            if (amount.compareTo(NetworkParameters.MAX_MONEY) > 0)
+            final NetworkParameters params = address.getParameters();
+            if (params.hasMaxMoney() && amount.compareTo(params.getMaxMoney()) > 0)
                 throw new IllegalArgumentException("Amount too big: " + amount);
             output.setAmount(amount.value);
         } else {
@@ -412,7 +415,7 @@ public class PaymentProtocol {
      * Value object to hold amount/script pairs.
      */
     public static class Output implements Serializable {
-        public final @Nullable Coin amount;
+        @Nullable public final Coin amount;
         public final byte[] scriptData;
 
         public Output(@Nullable Coin amount, byte[] scriptData) {

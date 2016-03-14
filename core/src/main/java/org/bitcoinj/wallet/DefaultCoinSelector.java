@@ -18,22 +18,22 @@ import java.util.*;
  */
 public class DefaultCoinSelector implements CoinSelector {
     @Override
-    public CoinSelection select(Coin biTarget, List<TransactionOutput> candidates) {
-        long target = biTarget.value;
+    public CoinSelection select(Coin target, List<TransactionOutput> candidates) {
         ArrayList<TransactionOutput> selected = new ArrayList<TransactionOutput>();
         // Sort the inputs by age*value so we get the highest "coindays" spent.
         // TODO: Consider changing the wallets internal format to track just outputs and keep them ordered.
         ArrayList<TransactionOutput> sortedOutputs = new ArrayList<TransactionOutput>(candidates);
         // When calculating the wallet balance, we may be asked to select all possible coins, if so, avoid sorting
         // them in order to improve performance.
-        if (!biTarget.equals(NetworkParameters.MAX_MONEY)) {
+        // TODO: Take in network parameters when instanatiated, and then test against the current network. Or just have a boolean parameter for "give me everything"
+        if (!target.equals(NetworkParameters.MAX_MONEY)) {
             sortOutputs(sortedOutputs);
         }
         // Now iterate over the sorted outputs until we have got as close to the target as possible or a little
         // bit over (excessive value will be change).
         long total = 0;
         for (TransactionOutput output : sortedOutputs) {
-            if (total >= target) break;
+            if (total >= target.value) break;
             // Only pick chain-included transactions, or transactions that are ours and pending.
             if (!shouldSelect(output.getParentTransaction())) continue;
             selected.add(output);
@@ -85,6 +85,6 @@ public class DefaultCoinSelector implements CoinSelector {
                confidence.getSource().equals(TransactionConfidence.Source.SELF) &&
                // In regtest mode we expect to have only one peer, so we won't see transactions propagate.
                // TODO: The value 1 below dates from a time when transactions we broadcast *to* were counted, set to 0
-               (confidence.numBroadcastPeers() > 1 || tx.getParams() == RegTestParams.get());
+               (confidence.numBroadcastPeers() > 1 || tx.getParams().getId().equals(NetworkParameters.ID_REGTEST));
     }
 }

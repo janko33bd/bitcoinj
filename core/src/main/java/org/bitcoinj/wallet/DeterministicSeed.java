@@ -17,16 +17,15 @@
 
 package org.bitcoinj.wallet;
 
+import org.bitcoinj.core.Utils;
 import org.bitcoinj.crypto.*;
 import org.bitcoinj.store.UnreadableWalletException;
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
+import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
 import org.spongycastle.crypto.params.KeyParameter;
 
 import javax.annotation.Nullable;
-import java.io.UnsupportedEncodingException;
 import java.security.SecureRandom;
 import java.util.List;
 
@@ -46,10 +45,10 @@ public class DeterministicSeed implements EncryptableItem {
     public static final int MAX_SEED_ENTROPY_BITS = 512;
 
     @Nullable private final byte[] seed;
-    @Nullable private List<String> mnemonicCode;
-    @Nullable private EncryptedData encryptedMnemonicCode;
+    @Nullable private final List<String> mnemonicCode; // only one of mnemonicCode/encryptedMnemonicCode will be set
+    @Nullable private final EncryptedData encryptedMnemonicCode;
     @Nullable private EncryptedData encryptedSeed;
-    private final long creationTimeSeconds;
+    private long creationTimeSeconds;
 
     public DeterministicSeed(String mnemonicCode, byte[] seed, String passphrase, long creationTimeSeconds) throws UnreadableWalletException {
         this(decodeMnemonicCode(mnemonicCode), seed, passphrase, creationTimeSeconds);
@@ -133,20 +132,15 @@ public class DeterministicSeed implements EncryptableItem {
 
     @Override
     public String toString() {
-        if (isEncrypted())
-            return "DeterministicSeed [encrypted]";
-        else
-            return "DeterministicSeed " + toHexString() +
-                    ((mnemonicCode != null) ? " " + Joiner.on(" ").join(mnemonicCode) : "");
+        return isEncrypted()
+            ? "DeterministicSeed [encrypted]"
+            : "DeterministicSeed " + toHexString() + " " + Utils.join(mnemonicCode);
     }
 
     /** Returns the seed as hex or null if encrypted. */
     @Nullable
     public String toHexString() {
-        if (seed != null)
-            return HEX.encode(seed);
-        else
-            return null;
+        return seed != null ? HEX.encode(seed) : null;
     }
 
     @Nullable
@@ -181,6 +175,10 @@ public class DeterministicSeed implements EncryptableItem {
         return creationTimeSeconds;
     }
 
+    public void setCreationTimeSeconds(long creationTimeSeconds) {
+        this.creationTimeSeconds = creationTimeSeconds;
+    }
+
     public DeterministicSeed encrypt(KeyCrypter keyCrypter, KeyParameter aesKey) {
         checkState(encryptedMnemonicCode == null, "Trying to encrypt seed twice");
         checkState(mnemonicCode != null, "Mnemonic missing so cannot encrypt");
@@ -190,23 +188,14 @@ public class DeterministicSeed implements EncryptableItem {
     }
 
     private byte[] getMnemonicAsBytes() {
-        return Joiner.on(" ").join(mnemonicCode).getBytes(Charsets.UTF_8);
+        return Utils.join(mnemonicCode).getBytes(Charsets.UTF_8);
     }
 
     public DeterministicSeed decrypt(KeyCrypter crypter, String passphrase, KeyParameter aesKey) {
         checkState(isEncrypted());
         checkNotNull(encryptedMnemonicCode);
-        List<String> mnemonic = null;
-        byte[] seed = null;
-        try {
-            mnemonic = decodeMnemonicCode(crypter.decrypt(encryptedMnemonicCode, aesKey));
-            if (encryptedSeed != null) {
-                seed = crypter.decrypt(encryptedSeed, aesKey);
-            }
-        } catch (UnreadableWalletException e) {
-            // TODO what is the best way to handle this exception?
-            throw new RuntimeException(e);
-        }
+        List<String> mnemonic = decodeMnemonicCode(crypter.decrypt(encryptedMnemonicCode, aesKey));
+        byte[] seed = encryptedSeed == null ? null : crypter.decrypt(encryptedSeed, aesKey);
         return new DeterministicSeed(mnemonic, seed, passphrase, creationTimeSeconds);
     }
 
@@ -214,25 +203,15 @@ public class DeterministicSeed implements EncryptableItem {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
-        DeterministicSeed seed = (DeterministicSeed) o;
-
-        if (creationTimeSeconds != seed.creationTimeSeconds) return false;
-        if (encryptedMnemonicCode != null) {
-            if (seed.encryptedMnemonicCode == null) return false;
-            if (!encryptedMnemonicCode.equals(seed.encryptedMnemonicCode)) return false;
-        } else {
-            if (!mnemonicCode.equals(seed.mnemonicCode)) return false;
-        }
-
-        return true;
+        DeterministicSeed other = (DeterministicSeed) o;
+        return creationTimeSeconds == other.creationTimeSeconds
+            && Objects.equal(encryptedMnemonicCode, other.encryptedMnemonicCode)
+            && Objects.equal(mnemonicCode, other.mnemonicCode);
     }
 
     @Override
     public int hashCode() {
-        int result = encryptedMnemonicCode != null ? encryptedMnemonicCode.hashCode() : mnemonicCode.hashCode();
-        result = 31 * result + (int) (creationTimeSeconds ^ (creationTimeSeconds >>> 32));
-        return result;
+        return Objects.hashCode(creationTimeSeconds, encryptedMnemonicCode, mnemonicCode);
     }
 
     /**
@@ -256,12 +235,8 @@ public class DeterministicSeed implements EncryptableItem {
         return mnemonicCode;
     }
 
-    private static List<String> decodeMnemonicCode(byte[] mnemonicCode) throws UnreadableWalletException {
-        try {
-            return Splitter.on(" ").splitToList(new String(mnemonicCode, "UTF-8"));
-        } catch (UnsupportedEncodingException e) {
-            throw new UnreadableWalletException(e.toString());
-        }
+    private static List<String> decodeMnemonicCode(byte[] mnemonicCode) {
+        return decodeMnemonicCode(Utils.toString(mnemonicCode, "UTF-8"));
     }
 
     private static List<String> decodeMnemonicCode(String mnemonicCode) {
