@@ -427,4 +427,6 @@ public abstract class NetworkParameters implements Serializable {
      * networks.
      */
     public abstract boolean hasMaxMoney();
+    
+    public abstract BigInteger getNextTargetRequired(StoredBlock pindexLast, BlockStore blockStore) throws BlockStoreException ;
 }

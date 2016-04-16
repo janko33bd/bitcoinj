@@ -192,4 +192,19 @@ public class TxConfidenceTable {
             lock.unlock();
         }
     }
+
+	@Nullable
+    public List<TransactionConfidence> getAll() {
+        lock.lock();
+        List<TransactionConfidence> txConf = new ArrayList<TransactionConfidence>();
+        try {
+        	for( WeakConfidenceReference ref: table.values()){
+        		if (ref != null)
+        			txConf.add(ref.get());
+        	}
+        } finally {
+            lock.unlock();
+        }
+		return txConf;
+    }
 }

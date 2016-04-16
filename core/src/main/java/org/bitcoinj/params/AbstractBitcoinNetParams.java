@@ -76,7 +76,8 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
                     newTargetCompact + " vs " + receivedTargetCompact);
       }
       
-      public BigInteger getNextTargetRequired(StoredBlock pindexLast, final BlockStore blockStore) throws BlockStoreException {
+    @Override  
+    public BigInteger getNextTargetRequired(StoredBlock pindexLast, final BlockStore blockStore) throws BlockStoreException {
   		BigInteger targetLimit = BlackcoinMagic.proofOfWorkLimit;
   		
   		Block prevBlock = pindexLast.getHeader();		

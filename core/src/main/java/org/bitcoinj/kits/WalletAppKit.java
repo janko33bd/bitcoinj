@@ -496,7 +496,7 @@ public class WalletAppKit extends AbstractIdleService {
         return vChain;
     }
 
-    public BlockStore store() {
+    public FullPrunedBlockStore store() {
         checkState(state() == State.STARTING || state() == State.RUNNING, "Cannot call until startup is complete");
         return vStore;
     }

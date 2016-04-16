@@ -180,7 +180,12 @@ public class Block extends Message {
     }
 
 
-    /**
+    public Block(NetworkParameters params, long version, Sha256Hash prevBlockHash, long time, long difficultyTarget) {
+    	this(params, version, prevBlockHash, null, time, difficultyTarget, 0, new LinkedList<Transaction>());
+        length = 80;
+    }
+
+	/**
      * <p>A utility method that calculates how much new Bitcoin would be created by the block at the given height.
      * The inflation of Bitcoin is predictable and drops roughly every 4 years (210,000 blocks). At the dawn of
      * the system it was 50 coins per block, in late 2012 it went to 25 coins per block, and so on. The size of
@@ -468,6 +473,7 @@ public class Block extends Message {
         try {
             writeHeader(stream);
             writeTransactions(stream);
+            writeSignature(stream);
         } catch (IOException e) {
             // Cannot happen, we are serializing to a memory stream.
         }
@@ -479,9 +485,17 @@ public class Block extends Message {
         writeHeader(stream);
         // We may only have enough data to write the header.
         writeTransactions(stream);
+        writeSignature(stream);
     }
 
-    /**
+    private void writeSignature(OutputStream stream) throws IOException {
+    	if (signature == null) {
+            return;
+        }
+    	stream.write(signature);		
+	}
+
+	/**
      * Provides a reasonable guess at the byte length of the transactions part of the block.
      * The returned value will be accurate in 99% of cases and in those cases where not will probably slightly
      * oversize.

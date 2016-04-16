@@ -33,6 +33,7 @@ import org.bitcoinj.script.*;
 import org.bitcoinj.utils.*;
 import org.bitcoinj.utils.Threading;
 import org.blackcoinj.pos.BlackcoinMagic;
+import org.blackcoinj.stake.BlockBroadcast;
 import org.slf4j.*;
 
 import javax.annotation.*;
@@ -215,6 +216,7 @@ public class PeerGroup implements TransactionBroadcaster {
     // being garbage collected if nothing in the apps code holds on to them transitively. See the discussion
     // in broadcastTransaction.
     private final Set<TransactionBroadcast> runningBroadcasts;
+    private final Set<BlockBroadcast>  runningBroadcasts2;
 
     private class PeerStartupListener extends AbstractPeerEventListener {
         @Override
@@ -403,6 +405,7 @@ public class PeerGroup implements TransactionBroadcaster {
         peerDiscoverers = new CopyOnWriteArraySet<PeerDiscovery>();
         peerEventListeners = new CopyOnWriteArrayList<ListenerRegistration<PeerEventListener>>();
         runningBroadcasts = Collections.synchronizedSet(new HashSet<TransactionBroadcast>());
+        runningBroadcasts2 = Collections.synchronizedSet(new HashSet<BlockBroadcast>());
 //        bloomFilterMerger = new FilterMerger(DEFAULT_BLOOM_FILTER_FP_RATE);
     }
 
@@ -2082,4 +2085,37 @@ public class PeerGroup implements TransactionBroadcaster {
     public boolean isBloomFilteringEnabled() {
         return vBloomFilteringEnabled;
     }
+
+    public BlockBroadcast broadcastMinedBlock(org.bitcoinj.core.Block newBlock) {
+		return broadcastMinedBlock(newBlock, Math.max(1, getMinBroadcastConnections()));
+		
+	}
+    
+    private BlockBroadcast broadcastMinedBlock(Block newBlock, int minConnections) {
+		// If we don't have a record of where this tx came from already, set it to be ourselves so Peer doesn't end up
+        // redownloading it from the network redundantly.
+        
+        final BlockBroadcast broadcast = new BlockBroadcast(this, newBlock);
+        broadcast.setMinConnections(minConnections);
+        // Send the TX to the wallet once we have a successful broadcast.
+        Futures.addCallback(broadcast.future(), new FutureCallback<Block>() {
+            @Override
+            public void onSuccess(Block newBlock) {
+            	runningBroadcasts2.remove(broadcast);
+            }
+
+            @Override
+            public void onFailure(Throwable throwable) {
+                // This can happen if we get a reject message from a peer.
+            	runningBroadcasts2.remove(broadcast);
+            }
+        });
+        // Keep a reference to the TransactionBroadcast object. This is important because otherwise, the entire tree
+        // of objects we just created would become garbage if the user doesn't hold on to the returned future, and
+        // eventually be collected. This in turn could result in the transaction not being committed to the wallet
+        // at all.
+        runningBroadcasts2.add(broadcast);
+        broadcast.broadcast();
+        return broadcast;
+	}
 }

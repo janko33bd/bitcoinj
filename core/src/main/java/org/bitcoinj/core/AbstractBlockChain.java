@@ -85,7 +85,11 @@ public abstract class AbstractBlockChain {
     private static final Logger log = LoggerFactory.getLogger(AbstractBlockChain.class);
     protected final ReentrantLock lock = Threading.lock("blockchain");
 
-    /** Keeps a map of block hashes to StoredBlocks. */
+    public ReentrantLock getLock() {
+		return lock;
+	}
+
+	/** Keeps a map of block hashes to StoredBlocks. */
     private final BlockStore blockStore;
 
     /**
@@ -657,11 +661,17 @@ public abstract class AbstractBlockChain {
         // Firstly, calculate the block at which the chain diverged. We only need to examine the
         // chain from beyond this block to find differences.
         StoredBlock head = getChainHead();
-        final StoredBlock splitPoint = findSplit(newChainHead, head, blockStore);
-        log.info("Re-organize after split at height {}", splitPoint.getHeight());
+        StoredBlock foundCrack = findSplit(newChainHead, head, blockStore);
+        final StoredBlock splitPoint; 
+        log.info("Re-organize after split at height {}", foundCrack.getHeight());
         log.info("Old chain head: {}", head.getHeader().getHashAsString());
         log.info("New chain head: {}", newChainHead.getHeader().getHashAsString());
-        log.info("Split at block: {}", splitPoint.getHeader().getHashAsString());
+        log.info("Split at block: {}", foundCrack.getHeader().getHashAsString());
+        //in blackcoin it happens that split and head is the same
+        if (head.getHeight() == foundCrack.getHeight())
+        	splitPoint = foundCrack.getPrev(blockStore);
+        else
+        	splitPoint = foundCrack;
         // Then build a list of all blocks in the old part of the chain and the new part.
         final LinkedList<StoredBlock> oldBlocks = getPartialChain(head, splitPoint, blockStore);
         final LinkedList<StoredBlock> newBlocks = getPartialChain(newChainHead, splitPoint, blockStore);

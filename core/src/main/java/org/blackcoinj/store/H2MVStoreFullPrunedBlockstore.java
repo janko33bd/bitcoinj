@@ -205,7 +205,7 @@ public class H2MVStoreFullPrunedBlockstore implements FullPrunedBlockStore {
 
 	@Override
 	public UTXO getTransactionOutput(Sha256Hash hash, long index) throws BlockStoreException {
-		String point = new String(hash.toString() + ":" + String.valueOf(index));
+		String point = String.valueOf(hash.toString()) + ":" + String.valueOf(index);
 		byte[] byteUTXO = wholeMap.get(point.getBytes());
 		if (byteUTXO == null) {
 			return null;
@@ -226,13 +226,13 @@ public class H2MVStoreFullPrunedBlockstore implements FullPrunedBlockStore {
 		} catch (IOException e) {
 			throw new BlockStoreException(e);
 		}
-		String point = new String(out.getHash().toString() + ":" + String.valueOf(out.getIndex()));
+		String point = String.valueOf(out.getHash().toString()) + ":" + String.valueOf(out.getIndex());
 		wholeMap.put(point.getBytes(), bos.toByteArray());
 	}
 
 	@Override
 	public void removeUnspentTransactionOutput(UTXO out) throws BlockStoreException {
-		String point = new String(out.getHash().toString() + ":" + String.valueOf(out.getIndex()));
+		String point = String.valueOf(out.getHash().toString()) + ":" + String.valueOf(out.getIndex());
 		if (wholeMap.remove(point.getBytes()) == null)
 			throw new BlockStoreException(
 					"Tried to remove a UTXO from MemoryFullPrunedBlockStore that it didn't have!");
