@@ -130,8 +130,6 @@ public class Peer extends PeerSocketHandler {
     // to keep it pinned to the root set if they care about this data.
     @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     private final HashSet<TransactionConfidence> pendingTxDownloads = new HashSet<TransactionConfidence>();
-    // The lowest version number we're willing to accept. Lower than this will result in an immediate disconnect.
-    private volatile int vMinProtocolVersion = BlackcoinMagic.minProtocolVersion;
     // When an API user explicitly requests a block or transaction from a peer, the InventoryItem is put here
     // whilst waiting for the response. Is not used for downloads Peer generates itself.
     private static class GetDataRequest {
@@ -396,7 +394,7 @@ public class Peer extends PeerSocketHandler {
             }
             // We check min version after onPeerConnected as channel.close() will
             // call onPeerDisconnected, and we should probably call onPeerConnected first.
-            final int version = vMinProtocolVersion;
+            final int version = BlackcoinMagic.minProtocolVersion;;
             if (vPeerVersionMessage.clientVersion < version) {
                 log.warn("Connected to a peer speaking protocol version {} but need {}, closing",
                         vPeerVersionMessage.clientVersion, version);
@@ -1424,8 +1422,7 @@ public class Peer extends PeerSocketHandler {
      * @return true if the peer was disconnected as a result
      */
     public boolean setMinProtocolVersion() {
-        this.vMinProtocolVersion = BlackcoinMagic.protocolVersion;
-        if (getVersionMessage().clientVersion < BlackcoinMagic.protocolVersion) {
+        if (getVersionMessage().clientVersion < BlackcoinMagic.minProtocolVersion) {
             log.warn("{}: Disconnecting due to new min protocol version {}", this, BlackcoinMagic.protocolVersion);
             close();
             return true;
