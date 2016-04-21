@@ -38,6 +38,7 @@ public class H2MVStoreFullPrunedBlockstore implements FullPrunedBlockStore {
 		this.params = params;
 		store = new MVStore.Builder().autoCommitDisabled().compressHigh().fileName(dbName).open();
 		store.setReuseSpace(true);
+		store.setStoreVersion(0);
 		store.setVersionsToKeep(0);
 		wholeMap = store.openMap("ALL");
 		initStore();

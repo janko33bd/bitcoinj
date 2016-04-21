@@ -295,12 +295,9 @@ public class WalletAppKit extends AbstractIdleService {
             vWalletFile = new File(directory, filePrefix + ".wallet");
             boolean shouldReplayWallet = (vWalletFile.exists() && !chainFileExists) || restoreFromSeed != null;
             vWallet = createOrLoadWallet(shouldReplayWallet);
-
          // Initiate Bitcoin network objects (block store, blockchain and peer group)
             vStore = new H2MVStoreFullPrunedBlockstore(params, chainFile.getAbsolutePath());
             //vStore = new MemoryFullPrunedBlockStore(params, 0);
-            if(!chainFileExists)
-            	CheckpointManager.checkpoint(params, checkpoints, checkpointstx, vStore, 0);
             
             vChain = new FullPrunedBlockChain(params, vStore);
      
