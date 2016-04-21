@@ -51,6 +51,7 @@ public class BlackcoinMagic {
 	public static final long nCoin = 100000000;
 	public static final long maxMoney = Long.MAX_VALUE;
 	public static final int protocolVersion = 60017;
+	public static final int minProtocolVersion = 60016;
 	
 	//kernel.h#L18 ratio of group interval length between the last group and the first group
 	public static final int modifierIntervalRatio = 3;

@@ -131,7 +131,7 @@ public class Peer extends PeerSocketHandler {
     @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     private final HashSet<TransactionConfidence> pendingTxDownloads = new HashSet<TransactionConfidence>();
     // The lowest version number we're willing to accept. Lower than this will result in an immediate disconnect.
-    private volatile int vMinProtocolVersion = BlackcoinMagic.protocolVersion;
+    private volatile int vMinProtocolVersion = BlackcoinMagic.minProtocolVersion;
     // When an API user explicitly requests a block or transaction from a peer, the InventoryItem is put here
     // whilst waiting for the response. Is not used for downloads Peer generates itself.
     private static class GetDataRequest {
