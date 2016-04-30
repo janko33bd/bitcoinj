@@ -293,7 +293,7 @@ public class Script {
             return chunk0data;
         
         } else {
-            throw new ScriptException(chunk0.opcode+" "+chunk1.opcode +" Script did not match expected form: " + this);
+            throw new ScriptException("Script did not match expected form: " + this);
         }
     }
 
