@@ -159,23 +159,25 @@ public class Staker extends AbstractExecutionThreadService {
             	return;
             }
               	 
-            
-            Set<Transaction> transactionsToInclude = getTransactionsToInclude(Context.get().getConfidenceTable().getAll(), prevBlock.getHeight());
-            Coin Fees = extractFees(transactionsToInclude);
-            coinstakeTx.getOutput(1).getValue().add(Fees);
-            long time = System.currentTimeMillis() / 1000;                  
-            newBlock = new Block(params, NetworkParameters.PROTOCOL_VERSION, prevBlockHash, time, difficultyTarget);
-            newBlock.addTransaction(coinbaseTransaction);
-            newBlock.addTransaction(coinstakeTx);
-            
-            for (Transaction transaction : transactionsToInclude) {
-                newBlock.addTransaction(transaction);
-            }
-       
-        
+            chain.getLock().lock();
+            try {
+            	Set<Transaction> transactionsToInclude = getTransactionsToInclude(Context.get().getConfidenceTable().getAll(), prevBlock.getHeight());
+                Coin Fees = extractFees(transactionsToInclude);
+                coinstakeTx.getOutput(1).getValue().add(Fees);
+                long time = System.currentTimeMillis() / 1000;                  
+                newBlock = new Block(params, NetworkParameters.PROTOCOL_VERSION, prevBlockHash, time, difficultyTarget);
+                newBlock.addTransaction(coinbaseTransaction);
+                newBlock.addTransaction(coinstakeTx);
+                
+                for (Transaction transaction : transactionsToInclude) {
+                    newBlock.addTransaction(transaction);
+                }
+                byte[] blockSignature = key.sign(newBlock.getHash()).encodeToDER();
+                newBlock.setSignature(blockSignature);
+            } finally {
+            	chain.getLock().unlock();
+            } 
         log.info("broadcasting: " + newBlock.getHash());
-        byte[] blockSignature = key.sign(newBlock.getHash()).encodeToDER();
-        newBlock.setSignature(blockSignature);
         
         if (newBestBlockArrivedFromAnotherNode) {
             log.info("Interrupted mining because another best block arrived(so close!)");
