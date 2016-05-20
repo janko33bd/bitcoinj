@@ -27,6 +27,7 @@ import org.bitcoinj.protocols.channels.*;
 import org.bitcoinj.store.*;
 import org.bitcoinj.wallet.*;
 import org.blackcoinj.store.H2MVStoreFullPrunedBlockstore;
+import org.blackcoinj.store.KofemeFullPrunedBlockstore;
 import org.slf4j.*;
 
 import javax.annotation.*;
@@ -104,7 +105,6 @@ public class WalletAppKit extends AbstractIdleService {
         this.params = checkNotNull(context.getParams());
         this.directory = checkNotNull(directory);
         this.filePrefix = checkNotNull(filePrefix);
-        log.info("looking for " + params.getId());
         if (!Utils.isAndroidRuntime()) {
             InputStream stream = WalletAppKit.class.getResourceAsStream("/" + params.getId() + ".checkpointsblk");
             if (stream != null)
@@ -296,7 +296,8 @@ public class WalletAppKit extends AbstractIdleService {
             boolean shouldReplayWallet = (vWalletFile.exists() && !chainFileExists) || restoreFromSeed != null;
             vWallet = createOrLoadWallet(shouldReplayWallet);
          // Initiate Bitcoin network objects (block store, blockchain and peer group)
-            vStore = new H2MVStoreFullPrunedBlockstore(params, chainFile.getAbsolutePath());
+            vStore = new KofemeFullPrunedBlockstore(params, chainFile.getAbsolutePath());
+            //vStore = new H2MVStoreFullPrunedBlockstore(params, chainFile.getAbsolutePath());
             //vStore = new MemoryFullPrunedBlockStore(params, 0);
             
             vChain = new FullPrunedBlockChain(params, vStore);

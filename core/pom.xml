@@ -190,6 +190,7 @@
                                         <urn>com.google.guava:guava:16.0.1:jar:null:compile:5fa98cd1a63c99a44dd8d3b77e4762b066a5d0c5</urn>
                                         <urn>com.google.protobuf:protobuf-java:2.5.0:jar:null:compile:a10732c76bfacdbd633a7eb0f7968b1059a65dfa</urn>
                                         <urn>com.h2database:h2:1.4.191:jar:null:compile:dec3540178ea889b2871b0ed56db14bbec9cfdfc</urn>
+                                        <urn>com.esotericsoftware.kryo:kryo:2.24.0:jar:null:compile:0c6b206e80cfd97e66a1364003724491c757b92f</urn>
                                         <urn>com.lambdaworks:scrypt:1.4.0:jar:null:compile:906506b74f30c8c20bccd9ed4a11112d8941fe87</urn>
                                         <urn>com.madgag.spongycastle:core:1.51.0.0:jar:null:compile:0f642963312ea0e615ad65f28adc5a5b3a2a0862</urn>
                                         <urn>junit:junit:4.12:jar:null:test:2973d150c0dc1fefe998f834810d68f278ea58ec</urn>
@@ -446,6 +447,11 @@
             <artifactId>h2</artifactId>
             <version>1.4.191</version>
         </dependency>
+        <dependency>
+    		<groupId>com.esotericsoftware.kryo</groupId>
+    		<artifactId>kryo</artifactId>
+    		<version>2.24.0</version>
+		</dependency>
         <dependency>
             <groupId>com.madgag.spongycastle</groupId>
             <artifactId>core</artifactId>

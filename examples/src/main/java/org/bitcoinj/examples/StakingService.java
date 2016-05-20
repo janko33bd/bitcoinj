@@ -88,10 +88,10 @@ public class StakingService {
                 Futures.addCallback(tx.getConfidence().getDepthFuture(1), new FutureCallback<TransactionConfidence>() {
                     @Override
                     public void onSuccess(TransactionConfidence result) {
-                    	System.out.println("got it");
-                    	List<String> mnemonicCodes = kit.wallet().getKeyChainSeed().getMnemonicCode();
-                    	for (String code : mnemonicCodes) {
-                    		System.out.println("code:" + code);
+                    	System.out.println("got it, printing private keys for importprivkey");
+                    	List<ECKey> issuedReceiveKeys = kit.wallet().getIssuedReceiveKeys();
+                    	for (ECKey code : issuedReceiveKeys) {
+                    		System.out.println("private keys:" + code.getPrivateKeyEncoded(params).toString());
 						}
                         //stakeCoins(params, kit.peerGroup(),kit.wallet(),kit.store(),kit.chain());
                     }
@@ -105,9 +105,13 @@ public class StakingService {
             }
         });
 
-        Address sendToAddress = kit.wallet().currentReceiveKey().toAddress(params);
-        System.out.println("Send coins to: " + sendToAddress);
-        System.out.println("Waiting for coins to arrive. Press Ctrl-C to quit.");
+//        Address sendToAddress = kit.wallet().currentReceiveKey().toAddress(params);
+//        System.out.println("Send coins to: " + sendToAddress);
+//        System.out.println("got it, printing private keys for importprivkey");
+    	List<ECKey> issuedReceiveKeys = kit.wallet().getIssuedReceiveKeys();
+    	for (ECKey code : issuedReceiveKeys) {
+    		System.out.println("private keys:" + code.getPrivateKeyEncoded(params).toString());
+		}
         System.out.println("staking..");
         stakeCoins(params, kit.peerGroup(),kit.wallet(),kit.store(),kit.chain());
         try {
