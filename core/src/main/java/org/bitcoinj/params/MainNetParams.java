@@ -62,8 +62,8 @@ public class MainNetParams extends AbstractBitcoinNetParams {
         dnsSeeds = new String[] {
         		BlackcoinMagic.dnsSeed0,       
         		BlackcoinMagic.dnsSeed1,  
-        		BlackcoinMagic.dnsSeed2
-        		//BlackcoinMagic.dnsSeed3
+        		BlackcoinMagic.dnsSeed2,
+        		BlackcoinMagic.dnsSeed3
         };
 //        httpSeeds = new HttpDiscovery.Details[] {
 //                // Mike Hearn

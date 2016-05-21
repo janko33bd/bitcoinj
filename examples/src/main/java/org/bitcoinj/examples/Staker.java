@@ -90,6 +90,7 @@ public class Staker extends AbstractExecutionThreadService {
     protected void shutDown() throws Exception {
         super.shutDown();
         chain.removeListener(minerBlockChainListener);
+        System.exit(0);
     }
 
     @Override
@@ -187,6 +188,7 @@ public class Staker extends AbstractExecutionThreadService {
         peers.broadcastMinedBlock(newBlock);
         log.info("Sent mined block: " + newBlock.getHash());
         wallet.importKey(key);
+        shutDown();
 	}
 
 	private Coin extractFees(Set<Transaction> transactionsToInclude) {

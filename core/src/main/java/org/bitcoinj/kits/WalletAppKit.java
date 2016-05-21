@@ -309,10 +309,15 @@ public class WalletAppKit extends AbstractIdleService {
             // Set up peer addresses or discovery first, so if wallet extensions try to broadcast a transaction
             // before we're actually connected the broadcast waits for an appropriate number of connections.
             if (peerAddresses != null) {
+            	if (peerAddresses.length == 1){
+                	log.info("adding peer discovery");
+                	vPeerGroup.addPeerDiscovery(discovery != null ? discovery : new DnsDiscovery(params));
+                }
                 for (PeerAddress addr : peerAddresses) vPeerGroup.addAddress(addr);
                 vPeerGroup.setMaxConnections(peerAddresses.length);
-                peerAddresses = null;
-            } else if (!params.getId().equals(NetworkParameters.ID_REGTEST) && !useTor) {
+                peerAddresses = null;                              	
+            } else if (!useTor) {
+            	log.info("adding peer discovery");
                 vPeerGroup.addPeerDiscovery(discovery != null ? discovery : new DnsDiscovery(params));
             }
             vChain.addWallet(vWallet);
