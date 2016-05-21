@@ -61,6 +61,7 @@ public class Staker extends AbstractExecutionThreadService {
         this.wallet = wallet;
         this.store = store;
         this.chain = chain;
+        this.context = new Context(params);
     }
 	
     private class MinerBlockChainListener extends AbstractBlockChainListener {
@@ -110,7 +111,6 @@ public class Staker extends AbstractExecutionThreadService {
 	
 	
 	void stake() throws Exception {
-		
         Transaction coinbaseTransaction = new Transaction(params);
         String coibaseMessage = "Staked on blackcoinj" + System.currentTimeMillis();
         char[] chars = coibaseMessage.toCharArray();
@@ -162,8 +162,7 @@ public class Staker extends AbstractExecutionThreadService {
             }
               	 
             chain.getLock().lock();
-            Context.propagate(context);
-            try {
+            try {            	
             	Set<Transaction> transactionsToInclude = getTransactionsToInclude(context.getConfidenceTable().getAll(), prevBlock.getHeight());
                 Coin Fees = extractFees(transactionsToInclude);
                 coinstakeTx.getOutput(1).getValue().add(Fees);
@@ -255,38 +254,40 @@ public class Staker extends AbstractExecutionThreadService {
         Set<TransactionOutPoint> spentOutPointsInThisBlock = new HashSet<TransactionOutPoint>();
         Set<Transaction> transactionsToInclude = new TreeSet<Transaction>(new TransactionPriorityComparator());
         for (TransactionConfidence txConf : list) {
-        	Transaction tx = wallet.getTransaction(txConf.getTransactionHash());
-            if (tx != null && !store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {                
-                // Transaction was not already included in a block that is part of the best chain 
-                boolean allOutPointsAreInTheBestChain = true;
-                boolean allOutPointsAreMature = true;
-                boolean doesNotDoubleSpend = true;
-                for (TransactionInput transactionInput : tx.getInputs()) {
-                    TransactionOutPoint outPoint = transactionInput.getOutpoint();
-                    UTXO storedOutPoint = store.getTransactionOutput(outPoint.getHash(), outPoint.getIndex());
-                    if (storedOutPoint == null) {
-                        //Outpoint not in the best chain
-                        allOutPointsAreInTheBestChain = false;
-                        break;
+        	if(txConf != null){
+        		Transaction tx = wallet.getTransaction(txConf.getTransactionHash());
+                if (tx != null && !store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {                
+                    // Transaction was not already included in a block that is part of the best chain 
+                    boolean allOutPointsAreInTheBestChain = true;
+                    boolean allOutPointsAreMature = true;
+                    boolean doesNotDoubleSpend = true;
+                    for (TransactionInput transactionInput : tx.getInputs()) {
+                        TransactionOutPoint outPoint = transactionInput.getOutpoint();
+                        UTXO storedOutPoint = store.getTransactionOutput(outPoint.getHash(), outPoint.getIndex());
+                        if (storedOutPoint == null) {
+                            //Outpoint not in the best chain
+                            allOutPointsAreInTheBestChain = false;
+                            break;
+                        }
+                        if ((prevHeight+1) - storedOutPoint.getHeight() < params.getSpendableCoinbaseDepth()) {
+                            //Outpoint is a non mature coinbase
+                            allOutPointsAreMature = false;
+                            break;
+                        }
+                        if (spentOutPointsInThisBlock.contains(outPoint)) {
+                            doesNotDoubleSpend = false;
+                            break;
+                        } else {
+                            spentOutPointsInThisBlock.add(outPoint);
+                        }                 
+                        
                     }
-                    if ((prevHeight+1) - storedOutPoint.getHeight() < params.getSpendableCoinbaseDepth()) {
-                        //Outpoint is a non mature coinbase
-                        allOutPointsAreMature = false;
-                        break;
+                    if (allOutPointsAreInTheBestChain && allOutPointsAreMature && doesNotDoubleSpend) {
+                        transactionsToInclude.add(tx);                    
                     }
-                    if (spentOutPointsInThisBlock.contains(outPoint)) {
-                        doesNotDoubleSpend = false;
-                        break;
-                    } else {
-                        spentOutPointsInThisBlock.add(outPoint);
-                    }                 
-                    
                 }
-                if (allOutPointsAreInTheBestChain && allOutPointsAreMature && doesNotDoubleSpend) {
-                    transactionsToInclude.add(tx);                    
-                }
-            }
-            
+        	}
+        	            
         }
         if(transactionsToInclude.size()>0)
         	return ImmutableSet.copyOf(Iterables.limit(transactionsToInclude, 1000));
