@@ -817,10 +817,7 @@ public class WalletTool {
             System.out.println("Chain file is missing so clearing transactions from the wallet.");
             reset();
         }
-        if (mode == ValidationMode.SPV) {
-            store = new SPVBlockStore(params, chainFileName);
-            chain = new BlockChain(params, wallet, store);
-        } else if (mode == ValidationMode.FULL) {
+        if (mode == ValidationMode.FULL) {
             FullPrunedBlockStore s = new H2FullPrunedBlockStore(params, chainFileName.getAbsolutePath(), 5000);
             store = s;
             chain = new FullPrunedBlockChain(params, wallet, s);

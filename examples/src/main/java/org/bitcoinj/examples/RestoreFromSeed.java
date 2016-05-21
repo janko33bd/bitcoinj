@@ -3,8 +3,8 @@ package org.bitcoinj.examples;
 import org.bitcoinj.core.*;
 import org.bitcoinj.net.discovery.DnsDiscovery;
 import org.bitcoinj.params.TestNet3Params;
-import org.bitcoinj.store.SPVBlockStore;
 import org.bitcoinj.wallet.DeterministicSeed;
+import org.blackcoinj.store.KofemeFullPrunedBlockstore;
 
 import java.io.File;
 
@@ -41,7 +41,7 @@ public class RestoreFromSeed {
         }
 
         // Setting up the BlochChain, the BlocksStore and connecting to the network.
-        SPVBlockStore chainStore = new SPVBlockStore(params, chainFile);
+        KofemeFullPrunedBlockstore chainStore = new KofemeFullPrunedBlockstore(params, chainFile.getPath());
         BlockChain chain = new BlockChain(params, chainStore);
         PeerGroup peers = new PeerGroup(params, chain);
         peers.addPeerDiscovery(new DnsDiscovery(params));
