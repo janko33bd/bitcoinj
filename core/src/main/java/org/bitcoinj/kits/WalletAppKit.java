@@ -245,7 +245,7 @@ public class WalletAppKit extends AbstractIdleService {
      * Override this to use a {@link BlockStore} that isn't the default of {@link SPVBlockStore}.
      */
     protected BlockStore provideBlockStore(File file) throws BlockStoreException {
-        return new SPVBlockStore(params, file);
+        return new KofemeFullPrunedBlockstore(params, file.getPath());
     }
 
     /**
