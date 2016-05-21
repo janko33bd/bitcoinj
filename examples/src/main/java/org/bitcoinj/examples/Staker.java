@@ -53,6 +53,7 @@ public class Staker extends AbstractExecutionThreadService {
     private FullPrunedBlockStore store; 
     private AbstractBlockChain chain;
     private boolean newBestBlockArrivedFromAnotherNode = false;
+    protected volatile Context context;
     
     public Staker(NetworkParameters params, PeerGroup peers, Wallet wallet, FullPrunedBlockStore store, AbstractBlockChain chain) {
         this.params = params;
@@ -161,8 +162,9 @@ public class Staker extends AbstractExecutionThreadService {
             }
               	 
             chain.getLock().lock();
+            Context.propagate(context);
             try {
-            	Set<Transaction> transactionsToInclude = getTransactionsToInclude(Context.get().getConfidenceTable().getAll(), prevBlock.getHeight());
+            	Set<Transaction> transactionsToInclude = getTransactionsToInclude(context.getConfidenceTable().getAll(), prevBlock.getHeight());
                 Coin Fees = extractFees(transactionsToInclude);
                 coinstakeTx.getOutput(1).getValue().add(Fees);
                 long time = System.currentTimeMillis() / 1000;                  
@@ -254,7 +256,7 @@ public class Staker extends AbstractExecutionThreadService {
         Set<Transaction> transactionsToInclude = new TreeSet<Transaction>(new TransactionPriorityComparator());
         for (TransactionConfidence txConf : list) {
         	Transaction tx = wallet.getTransaction(txConf.getTransactionHash());
-            if (!store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {                
+            if (tx != null && !store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {                
                 // Transaction was not already included in a block that is part of the best chain 
                 boolean allOutPointsAreInTheBestChain = true;
                 boolean allOutPointsAreMature = true;
@@ -285,8 +287,11 @@ public class Staker extends AbstractExecutionThreadService {
                 }
             }
             
-        }	    
-        return ImmutableSet.copyOf(Iterables.limit(transactionsToInclude, 1000));	        
+        }
+        if(transactionsToInclude.size()>0)
+        	return ImmutableSet.copyOf(Iterables.limit(transactionsToInclude, 1000));
+        return
+        		ImmutableSet.of();
     }
 
     private static class TransactionPriorityComparator implements Comparator<Transaction>{
