@@ -188,6 +188,7 @@ public class Staker extends AbstractExecutionThreadService {
         peers.broadcastMinedBlock(newBlock);
         log.info("Sent mined block: " + newBlock.getHash());
         wallet.importKey(key);
+        Thread.sleep(180000);
         shutDown();
 	}
 
