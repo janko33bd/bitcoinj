@@ -490,6 +490,7 @@ public class Block extends Message {
 
     private void writeSignature(OutputStream stream) throws IOException {
     	if (signature == null) {
+    		log.info("no signature !!");
             return;
         }
     	stream.write(signature);		

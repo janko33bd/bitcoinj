@@ -174,7 +174,7 @@ public class Staker extends AbstractExecutionThreadService {
                 for (Transaction transaction : transactionsToInclude) {
                     newBlock.addTransaction(transaction);
                 }
-                byte[] blockSignature = key.sign(newBlock.getHash()).encodeToDER();
+                byte[] blockSignature = key.sign(newBlock.getHash()).toCanonicalised().encodeToDER();
                 newBlock.setSignature(blockSignature);
             } finally {
             	chain.getLock().unlock();
