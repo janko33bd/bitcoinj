@@ -18,10 +18,13 @@
 package org.bitcoinj.examples;
 
 import org.bitcoinj.core.*;
+import org.bitcoinj.core.ECKey.ECDSASignature;
 import org.bitcoinj.kits.WalletAppKit;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.store.FullPrunedBlockStore;
 import org.bitcoinj.utils.BriefLogFormatter;
+
+import com.esotericsoftware.minlog.Log;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import java.io.File;
@@ -34,6 +37,7 @@ import java.util.List;
  */
 public class StakingService {
     private static WalletAppKit kit;
+	
 
     public static void main(String[] args) throws Exception {
     	
@@ -43,27 +47,12 @@ public class StakingService {
         // Figure out which network we should connect to. Each one gets its own set of files.
         NetworkParameters params;
         String filePrefix;
-//        if (args.length > 1 && args[1].equals("testnet")) {
-//            params = TestNet3Params.get();
-//            filePrefix = "forwarding-service-testnet";
-//        } else if (args.length > 1 && args[1].equals("regtest")) {
-//            params = RegTestParams.get();
-//            filePrefix = "forwarding-service-regtest";
-//        } else {
             params = MainNetParams.get();
             filePrefix = "forwarding-service";
-       // }
-        // Parse the address given as the first parameter.
-
-        // Start up a basic app using a class that automates some boilerplate.
+      
         kit = new WalletAppKit(params, new File("."), filePrefix);
         //TODO Remove
         kit.connectToLocalHost();
-//        if (params == RegTestParams.get()) {
-//            // Regression test mode is designed for testing and development only, so there's no public network for it.
-//            // If you pick this mode, you're expected to be running a local "bitcoind -regtest" instance.
-//            kit.connectToLocalHost();
-//        }
 
         // Download the block chain and wait until it's done.
         kit.startAsync();
@@ -104,19 +93,14 @@ public class StakingService {
                 });
             }
         });
-
-//        Address sendToAddress = kit.wallet().currentReceiveKey().toAddress(params);
-//        System.out.println("Send coins to: " + sendToAddress);
-//        System.out.println("got it, printing private keys for importprivkey");
+        
     	List<ECKey> issuedReceiveKeys = kit.wallet().getIssuedReceiveKeys();
     	for (ECKey code : issuedReceiveKeys) {
     		System.out.println("private keys:" + code.getPrivateKeyEncoded(params).toString());
 		}
         System.out.println("staking..");
+        
         stakeCoins(params, kit.peerGroup(),kit.wallet(),kit.store(),kit.chain());
-        try {
-            Thread.sleep(Long.MAX_VALUE);
-        } catch (InterruptedException ignored) {}
     }
 
     private static void stakeCoins(NetworkParameters params, PeerGroup peers, Wallet wallet, FullPrunedBlockStore store, AbstractBlockChain chain) {

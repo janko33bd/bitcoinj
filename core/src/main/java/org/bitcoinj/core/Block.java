@@ -17,6 +17,7 @@
 
 package org.bitcoinj.core;
 
+import org.bitcoinj.core.ECKey.ECDSASignature;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
 import org.blackcoinj.pos.BlackcoinMagic;
@@ -251,7 +252,7 @@ public class Block extends Message {
         //signature is not serialized
         if(payload.length != cursor){
         	byte[] blockSig = readByteArray();
-            checkBlockSignature(blockSig);
+           checkBlockSignature(blockSig);
         }
         
         // No need to set length here. If length was not provided then it should be set at the end of parseLight().
@@ -490,9 +491,9 @@ public class Block extends Message {
 
     private void writeSignature(OutputStream stream) throws IOException {
     	if (signature == null) {
-    		log.info("no signature !!");
             return;
         }
+    	stream.write(new VarInt(signature.length).encode());
     	stream.write(signature);		
 	}
 
@@ -1138,10 +1139,13 @@ public class Block extends Message {
     	
     	boolean genuine = false;
     	//
-    	// Solver - Return public keys  	
-    	genuine = ECKey.verify(Utils.reverseBytes(getHash().getBytes()), blockSig, scriptPubKey.getPubKey());
+    	// Solver - Return public keys 
+    	ECDSASignature decodedSignature = ECDSASignature.decodeFromDER(blockSig);
+		if(!decodedSignature.isCanonical())
+    		throw new VerificationException("Is not Canonical");
+    	genuine = ECKey.verify(Utils.reverseBytes(getHash().getBytes()), decodedSignature, scriptPubKey.getPubKey());
     	if(!genuine){
-    		throw new VerificationException("Wrong Block signature PayToScriptHash:" + scriptPubKey.isPayToScriptHash());
+    		throw new VerificationException("Wrong Block signature");
     	}
     	
 	}

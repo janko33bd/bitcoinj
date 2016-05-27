@@ -50,7 +50,7 @@ public class BlackcoinMagic {
 	public static final String coin = "100000000";
 	public static final long nCoin = 100000000;
 	public static final long maxMoney = Long.MAX_VALUE;
-	public static final int protocolVersion = 60017;
+	public static final int protocolVersion = 60018;
 	public static final int minProtocolVersion = 60016;
 	
 	//kernel.h#L18 ratio of group interval length between the last group and the first group
@@ -81,4 +81,13 @@ public class BlackcoinMagic {
 	public static final int stakeMinConfirmations = 500;
 
 	public static final long dust = 546;
+
+	public static final long blockVersion = 7;
+	// To decrease granularity of timestamp
+	// Supposed to be 2^n-1
+	public static final int STAKE_TIMESTAMP_MASK = 15;
+
+	public static final long futureDrift = 15;
+
+	public static final long minerMiliSleep = 500;
 }

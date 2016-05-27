@@ -1,9 +1,7 @@
 package org.bitcoinj.examples;
 
-import static com.google.common.base.Preconditions.checkState;
+import static org.bitcoinj.script.ScriptOpCodes.OP_CHECKSIG;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -34,274 +32,314 @@ import org.bitcoinj.core.Utils;
 import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.core.Wallet;
 import org.bitcoinj.script.Script;
-import org.bitcoinj.script.ScriptOpCodes;
+import org.bitcoinj.script.ScriptBuilder;
 import org.bitcoinj.store.BlockStoreException;
 import org.bitcoinj.store.FullPrunedBlockStore;
+import org.blackcoinj.pos.BlackcoinMagic;
 import org.blackcoinj.pos.BlackcoinPOS;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
 
-
 public class Staker extends AbstractExecutionThreadService {
-	
-    private static final Logger log = LoggerFactory.getLogger(Staker.class);
 
-    private NetworkParameters params; 
-    private PeerGroup peers;
-    private Wallet wallet;
-    private FullPrunedBlockStore store; 
-    private AbstractBlockChain chain;
-    private boolean newBestBlockArrivedFromAnotherNode = false;
-    protected volatile Context context;
-    
-    public Staker(NetworkParameters params, PeerGroup peers, Wallet wallet, FullPrunedBlockStore store, AbstractBlockChain chain) {
-        this.params = params;
-        this.peers = peers;
-        this.wallet = wallet;
-        this.store = store;
-        this.chain = chain;
-        this.context = new Context(params);
-    }
-	
-    private class MinerBlockChainListener extends AbstractBlockChainListener {
+	private static final Logger log = LoggerFactory.getLogger(Staker.class);
 
-        @Override
-        public void notifyNewBestBlock(StoredBlock storedBlock) throws VerificationException {
-        	log.info("notify new block");
-        	newBestBlockArrivedFromAnotherNode = true;
-        }
+	private NetworkParameters params;
+	private PeerGroup peers;
+	private Wallet wallet;
+	private FullPrunedBlockStore store;
+	private AbstractBlockChain chain;
+	private volatile boolean newBestBlockArrived = false;
+	private volatile boolean stopStaking = false;
 
-        @Override
-        public void reorganize(StoredBlock splitPoint, List<StoredBlock> oldBlocks, List<StoredBlock> newBlocks) throws VerificationException {
-        	newBestBlockArrivedFromAnotherNode = true;
-        }
-        
-    }
-    
-    MinerBlockChainListener minerBlockChainListener = new MinerBlockChainListener();
-    
-    @Override
-    protected void startUp() throws Exception {
-        super.startUp();
-        log.info("adding listener");
-        chain.addListener(minerBlockChainListener);
-    }
-    
-    @Override
-    protected void shutDown() throws Exception {
-        super.shutDown();
-        chain.removeListener(minerBlockChainListener);
-        System.exit(0);
-    }
+	public Staker(NetworkParameters params, PeerGroup peers, Wallet wallet, FullPrunedBlockStore store,
+			AbstractBlockChain chain) {
+		this.params = params;
+		this.peers = peers;
+		this.wallet = wallet;
+		this.store = store;
+		this.chain = chain;
 
-    @Override
-    protected void run() throws Exception {
-    	while (isRunning()) {
-            try {
-                //System.out.println("Press any key to mine 1 block...");
-                //System.in.read();
-                stake();
-                
-            } catch (Exception e) {
-                log.error("Exception mining", e);
-            }
-        }
-    }
-	
-	
+		log.info("wallet has:" + wallet.calculateAllSpendCandidates().get(0).getValue());
+	}
+
+	private class MinerBlockChainListener extends AbstractBlockChainListener {
+
+		@Override
+		public void notifyNewBestBlock(StoredBlock storedBlock) throws VerificationException {
+			log.info("notify new block");
+			newBestBlockArrived = true;
+		}
+
+		@Override
+		public void reorganize(StoredBlock splitPoint, List<StoredBlock> oldBlocks, List<StoredBlock> newBlocks)
+				throws VerificationException {
+			newBestBlockArrived = true;
+		}
+
+	}
+
+	MinerBlockChainListener minerBlockChainListener = new MinerBlockChainListener();
+
+	@Override
+	protected void startUp() throws Exception {
+		super.startUp();
+		log.info("adding listener");
+		chain.addListener(minerBlockChainListener);
+	}
+
+	@Override
+	protected void shutDown() throws Exception {
+		super.shutDown();
+		chain.removeListener(minerBlockChainListener);
+	}
+
+	@Override
+	protected void run() throws Exception {
+		while (!stopStaking) {
+			try {
+				stake();
+
+			} catch (Exception e) {
+				log.error("Exception mining", e);
+			}
+		}
+		shutDown();
+	}
+
 	void stake() throws Exception {
-        Transaction coinbaseTransaction = new Transaction(params);
-        String coibaseMessage = "Staked on blackcoinj" + System.currentTimeMillis();
-        char[] chars = coibaseMessage.toCharArray();
-        byte[] bytes = new byte[chars.length];
-        for(int i=0;i<bytes.length;i++) bytes[i] = (byte) chars[i];
-        TransactionInput ti = new TransactionInput(params, coinbaseTransaction, bytes);
-        coinbaseTransaction.addInput(ti);
-        coinbaseTransaction.addOutput(new TransactionOutput(params, coinbaseTransaction, Coin.ZERO, new byte[0]));
-        
-        StoredBlock prevBlock = null;
-        Block newBlock;
-        ECKey key = new ECKey();
-        chain.getLock().lock();
-        try {
-            prevBlock = chain.getChainHead();
-            newBestBlockArrivedFromAnotherNode = false;
-        } finally {
-        	chain.getLock().unlock();
-        }    
-            Sha256Hash prevBlockHash = prevBlock.getHeader().getHash();        
-            
-            BigInteger bigNextTargetRequired = params.getNextTargetRequired(prevBlock, store);
-            long difficultyTarget = Utils.encodeCompactBits(bigNextTargetRequired);
-            
-            
-            List<TransactionOutput> calculateAllSpendCandidates = wallet.calculateAllSpendCandidates();
-            long stakeTxTime = Utils.currentTimeSeconds();       
-    		
-            Sha256Hash stakeKernelHash = null;
-            Transaction coinstakeTx = new Transaction(params);
-            coinstakeTx.addOutput(Coin.ZERO, new Script(new byte[32]));
-            log.info("loop till block arrives");
-            
-            while (!newBestBlockArrivedFromAnotherNode) {
-            	stakeKernelHash = blackStake(prevBlock, key, difficultyTarget, calculateAllSpendCandidates,
-						stakeTxTime, coinstakeTx);
-            	if(stakeKernelHash!=null){
-            		log.info("kernel found");
-            		break;
-            	}
-            		
-                Thread.sleep(16000);	                      
-            }
-            log.info("block arrived or stake?");
-            
-            if(stakeKernelHash == null){
-            	log.info("block arrived");
-            	return;
-            }
-              	 
-            chain.getLock().lock();
-            try {            	
-            	Set<Transaction> transactionsToInclude = getTransactionsToInclude(context.getConfidenceTable().getAll(), prevBlock.getHeight());
-                Coin Fees = extractFees(transactionsToInclude);
-                coinstakeTx.getOutput(1).getValue().add(Fees);
-                long time = System.currentTimeMillis() / 1000;                  
-                newBlock = new Block(params, NetworkParameters.PROTOCOL_VERSION, prevBlockHash, time, difficultyTarget);
-                newBlock.addTransaction(coinbaseTransaction);
-                newBlock.addTransaction(coinstakeTx);
-                
-                for (Transaction transaction : transactionsToInclude) {
-                    newBlock.addTransaction(transaction);
-                }
-                byte[] blockSignature = key.sign(newBlock.getHash()).toCanonicalised().encodeToDER();
-                newBlock.setSignature(blockSignature);
-            } finally {
-            	chain.getLock().unlock();
-            } 
-        log.info("broadcasting: " + newBlock.getHash());
-        
-        if (newBestBlockArrivedFromAnotherNode) {
-            log.info("Interrupted mining because another best block arrived(so close!)");
-            return;
-        }
-        
-        peers.broadcastMinedBlock(newBlock);
-        log.info("Sent mined block: " + newBlock.getHash());
-        wallet.importKey(key);
-        Thread.sleep(180000);
-        shutDown();
-	}
+		newBestBlockArrived = false;
+		StoredBlock prevBlock = chain.getChainHead();
 
-	private Coin extractFees(Set<Transaction> transactionsToInclude) {
-		Coin fee = Coin.ZERO;
-		for(Transaction tx:transactionsToInclude){
-			fee.add(tx.getFee());
+		Transaction coinstakeTx = initCoinstakeTx();
+		while (isPastLasTime(prevBlock, coinstakeTx)) {
+			long sleep = (1 + BlackcoinMagic.futureDrift + prevBlock.getHeader().getTimeSeconds()
+					- coinstakeTx.getnTime()) * 1000;
+			log.info("sleep for " + sleep);
+			Thread.sleep(sleep);
+			prevBlock = chain.getChainHead();
+			coinstakeTx = initCoinstakeTx();
 		}
-		return fee;
-	}
+		if (newBestBlockArrived)
+			return;
 
-	private Sha256Hash blackStake(StoredBlock prevBlock, ECKey key, long difficultyTarget, List<TransactionOutput> calculateAllSpendCandidates, long stakeTxTime, Transaction coinstakeTx) {
-		Sha256Hash stakeKernelHash = null;
-		for(TransactionOutput candidate: calculateAllSpendCandidates){
-			log.info("staking " + candidate.getValue().toPlainString());
-			for (int n = 0; n < 60; n++) {
-				//if (CheckKernel(pindexPrev, nBits, txNew.nTime - n, prevoutStake, &nBlockTime[not needed]))
-				stakeKernelHash = checkForKernel(prevBlock, difficultyTarget, stakeTxTime - n, candidate);
-		    	if(stakeKernelHash!=null){
-		    		log.info("kernel found");
-		    		Script scriptPubKeyKernel = candidate.getParentTransaction().getOutput(candidate.getIndex()).getScriptPubKey();
-		    		coinstakeTx.setnTime(stakeTxTime - n);
-					coinstakeTx.addSignedInput(candidate.getOutPointFor(), scriptPubKeyKernel, key);			        
-			        ByteArrayOutputStream scriptPubKeyBytes = new ByteArrayOutputStream();
-			        try {
-						Script.writeBytes(scriptPubKeyBytes, key.getPubKey());
-					} catch (IOException e) {
-						
-						e.printStackTrace();
-					}
-			        scriptPubKeyBytes.write(ScriptOpCodes.OP_CHECKSIG);
-					coinstakeTx.addOutput(new TransactionOutput(params, coinstakeTx, Coin.valueOf(1, 50), scriptPubKeyBytes.toByteArray()));					
-					break;              
-		    	}  
-			}
-			
+		log.info("good times :)");
+		log.info("do stake");
+
+		while (!newBestBlockArrived) {
+			doStake(prevBlock, coinstakeTx);
+			Thread.sleep(BlackcoinMagic.minerMiliSleep);
+			coinstakeTx = initCoinstakeTx();
+			if (isPastLasTime(prevBlock, coinstakeTx))
+				break;
+			if (isFutureTime(coinstakeTx))
+				break;
 		}
-		return stakeKernelHash;
+
+		log.info("block arrived");
+
 	}
 
-	private Sha256Hash checkForKernel(StoredBlock prevBlock, long difficultyTarget, long stakeTxTime, TransactionOutput candidate) {
+	private boolean isFutureTime(Transaction coinstakeTx) {
+		return coinstakeTx.getnTime() > Utils.currentTimeSeconds() + BlackcoinMagic.futureDrift;
+	}
+
+	private boolean isPastLasTime(StoredBlock prevBlock, Transaction coinstakeTx) {
+		return coinstakeTx.getnTime() <= prevBlock.getHeader().getTimeSeconds() + BlackcoinMagic.futureDrift;
+	}
+
+	private Transaction initCoinstakeTx() {
+		Transaction coinstakeTx = new Transaction(params);
+		// apply black magic
+		coinstakeTx.setnTime(coinstakeTx.getnTime() & ~BlackcoinMagic.STAKE_TIMESTAMP_MASK);
+		coinstakeTx.addOutput(new TransactionOutput(params, null, Coin.ZERO, new byte[0]));
+		return coinstakeTx;
+	}
+
+	private Transaction createCoinbaseTx() {
+		Transaction coinbaseTransaction = new Transaction(params);
+		// max length 100
+		String coibaseMessage = "blackcoinj staked and Petra still loves me :)";
+		char[] chars = coibaseMessage.toCharArray();
+		byte[] bytes = new byte[chars.length];
+		for (int i = 0; i < bytes.length; i++)
+			bytes[i] = (byte) chars[i];
+		TransactionInput ti = new TransactionInput(params, coinbaseTransaction, bytes);
+		coinbaseTransaction.addInput(ti);
+		coinbaseTransaction.addOutput(new TransactionOutput(params, coinbaseTransaction, Coin.ZERO, new byte[0]));
+		return coinbaseTransaction;
+	}
+
+	private void doStake(StoredBlock prevBlock, Transaction coinstakeTx) throws BlockStoreException {
 		Sha256Hash stakeKernelHash = null;
-		
-			try{
-				TransactionOutPoint prevoutStake = candidate.getOutPointFor();
-				UTXO txPrev = store.getTransactionOutput(prevoutStake.getHash(), prevoutStake.getIndex());
-				if(txPrev == null){
-					log.info("can't check for kernel");
-					return stakeKernelHash;
+		long stakeTxTime = coinstakeTx.getnTime();
+		// TODO select coins for staking
+		List<TransactionOutput> calculateAllSpendCandidates = wallet.calculateAllSpendCandidates();
+		BigInteger bigNextTargetRequired = params.getNextTargetRequired(prevBlock, store);
+		long difficultyTarget = Utils.encodeCompactBits(bigNextTargetRequired);
+		for (TransactionOutput candidate : calculateAllSpendCandidates) {
+			// if (CheckKernel(pindexPrev, nBits, txNew.nTime - n,
+			// prevoutStake, &nBlockTime[not needed]))
+			stakeKernelHash = checkForKernel(prevBlock, difficultyTarget, stakeTxTime, candidate);
+			if (stakeKernelHash != null) {
+				log.info("kernel found");
+				Coin reward = Coin.valueOf(1, 50);
+				ECKey key = findWholeKey(candidate);
+
+				Script keyScript = new ScriptBuilder().data(key.getPubKey()).op(OP_CHECKSIG).build();
+				coinstakeTx.addOutput(reward, keyScript);
+				coinstakeTx.addSignedInput(candidate, key);
+				try {
+					coinstakeTx.verify();
+					coinstakeTx.getInputs().get(0).verify();
+				} catch (VerificationException ex) {
+					log.error("tx ver failed: ", ex);
 				}
-					
-				BlackcoinPOS blkPOS = new BlackcoinPOS(store);
-				stakeKernelHash = blkPOS.checkStakeKernelHash(prevBlock, difficultyTarget, txPrev, stakeTxTime, prevoutStake);
-			}catch(BlockStoreException ex){
-				// either prevout was not found or stake kernel..
+
+				Transaction coinbaseTransaction = createCoinbaseTx();
+				coinbaseTransaction.setnTime(coinstakeTx.getnTime());
+				log.info("new block before priv?" + key.hasPrivKey());
+				Block newBlock = new Block(params, BlackcoinMagic.blockVersion, prevBlock.getHeader().getHash(),
+						coinstakeTx.getnTime(), difficultyTarget);
+				newBlock.addTransaction(coinbaseTransaction);
+				newBlock.addTransaction(coinstakeTx);
+				// for (Transaction transaction :
+				// blackStake.getTransactionsToInclude()) {
+				// newBlock.addTransaction(transaction);
+				// }
+				ECKey duplicateKey = ECKey.fromPrivate(key.getPrivKeyBytes());
+				log.info("new block in priv?" + duplicateKey.hasPrivKey());
+				byte[] blockSignature = duplicateKey.signReversed(newBlock.getHash()).encodeToDER();
+
+				newBlock.setSignature(blockSignature);
+
+				log.info("broadcasting: " + newBlock.getHash());
+				peers.broadcastMinedBlock(newBlock);
+				log.info("Sent mined block: " + newBlock.getHash());
+				log.info("blocktime " + newBlock.getTimeSeconds());
+				log.info("coinstakeTx " + coinstakeTx.getnTime());
+				newBestBlockArrived = true;
+				stopStaking = true;
+				try {
+					Thread.sleep(180000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+
+				break;
 			}
+
+		}
+	}
+
+	private ECKey findWholeKey(TransactionOutput candidate) throws BlockStoreException {
+		ECKey halfkey = wallet.findKeyFromPubHash(candidate.getScriptPubKey().getPubKeyHash());
+		List<ECKey> issuedReceiveKeys = wallet.getIssuedReceiveKeys();
+		for (ECKey wholeKey : issuedReceiveKeys) {
+			if (halfkey.getPublicKeyAsHex().equals(wholeKey.getPublicKeyAsHex())) {
+				log.info("priv?" + wholeKey.hasPrivKey());
+				return wholeKey;
+			}
+
+		}
+		throw new BlockStoreException("No whole key found..");
+	}
+
+	private Sha256Hash checkForKernel(StoredBlock prevBlock, long difficultyTarget, long stakeTxTime,
+			TransactionOutput candidate) {
+		Sha256Hash stakeKernelHash = null;
+
+		try {
+			TransactionOutPoint prevoutStake = candidate.getOutPointFor();
+			UTXO txPrev = store.getTransactionOutput(prevoutStake.getHash(), prevoutStake.getIndex());
+			if (txPrev == null) {
+				log.info("can't check for kernel");
+				return stakeKernelHash;
+			}
+
+			BlackcoinPOS blkPOS = new BlackcoinPOS(store);
+			stakeKernelHash = blkPOS.checkStakeKernelHash(prevBlock, difficultyTarget, txPrev, stakeTxTime,
+					prevoutStake);
+		} catch (BlockStoreException ex) {
+			// either prevout was not found or stake kernel..
+		}
 		return stakeKernelHash;
 	}
 
-	private Set<Transaction> getTransactionsToInclude(List<TransactionConfidence> list, int prevHeight) throws BlockStoreException {
-        checkState(chain.getLock().isHeldByCurrentThread());
-        Set<TransactionOutPoint> spentOutPointsInThisBlock = new HashSet<TransactionOutPoint>();
-        Set<Transaction> transactionsToInclude = new TreeSet<Transaction>(new TransactionPriorityComparator());
-        for (TransactionConfidence txConf : list) {
-        	if(txConf != null){
-        		Transaction tx = wallet.getTransaction(txConf.getTransactionHash());
-                if (tx != null && !store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {                
-                    // Transaction was not already included in a block that is part of the best chain 
-                    boolean allOutPointsAreInTheBestChain = true;
-                    boolean allOutPointsAreMature = true;
-                    boolean doesNotDoubleSpend = true;
-                    for (TransactionInput transactionInput : tx.getInputs()) {
-                        TransactionOutPoint outPoint = transactionInput.getOutpoint();
-                        UTXO storedOutPoint = store.getTransactionOutput(outPoint.getHash(), outPoint.getIndex());
-                        if (storedOutPoint == null) {
-                            //Outpoint not in the best chain
-                            allOutPointsAreInTheBestChain = false;
-                            break;
-                        }
-                        if ((prevHeight+1) - storedOutPoint.getHeight() < params.getSpendableCoinbaseDepth()) {
-                            //Outpoint is a non mature coinbase
-                            allOutPointsAreMature = false;
-                            break;
-                        }
-                        if (spentOutPointsInThisBlock.contains(outPoint)) {
-                            doesNotDoubleSpend = false;
-                            break;
-                        } else {
-                            spentOutPointsInThisBlock.add(outPoint);
-                        }                 
-                        
-                    }
-                    if (allOutPointsAreInTheBestChain && allOutPointsAreMature && doesNotDoubleSpend) {
-                        transactionsToInclude.add(tx);                    
-                    }
-                }
-        	}
-        	            
-        }
-        if(transactionsToInclude.size()>0)
-        	return ImmutableSet.copyOf(Iterables.limit(transactionsToInclude, 1000));
-        return
-        		ImmutableSet.of();
-    }
+	private Set<Transaction> getTransactionsToInclude(int prevHeight) throws BlockStoreException {
+		chain.getLock().lock();
+		try {
+			Context context = new Context(params);
+			List<TransactionConfidence> list = context.getConfidenceTable().getAll();
+			Set<TransactionOutPoint> spentOutPointsInThisBlock = new HashSet<TransactionOutPoint>();
+			Set<Transaction> transactionsToInclude = new TreeSet<Transaction>(new TransactionPriorityComparator());
+			for (TransactionConfidence txConf : list) {
+				if (txConf != null) {
+					Transaction tx = wallet.getTransaction(txConf.getTransactionHash());
+					if (tx != null && !store.hasUnspentOutputs(tx.getHash(), tx.getOutputs().size())) {
+						// Transaction was not already included in a block that
+						// is
+						// part of the best chain
+						boolean allOutPointsAreInTheBestChain = true;
+						boolean allOutPointsAreMature = true;
+						boolean doesNotDoubleSpend = true;
+						for (TransactionInput transactionInput : tx.getInputs()) {
+							TransactionOutPoint outPoint = transactionInput.getOutpoint();
+							UTXO storedOutPoint = store.getTransactionOutput(outPoint.getHash(), outPoint.getIndex());
+							if (storedOutPoint == null) {
+								// Outpoint not in the best chain
+								allOutPointsAreInTheBestChain = false;
+								break;
+							}
+							if ((prevHeight + 1) - storedOutPoint.getHeight() < params.getSpendableCoinbaseDepth()) {
+								// Outpoint is a non mature coinbase
+								allOutPointsAreMature = false;
+								break;
+							}
+							if (spentOutPointsInThisBlock.contains(outPoint)) {
+								doesNotDoubleSpend = false;
+								break;
+							} else {
+								spentOutPointsInThisBlock.add(outPoint);
+							}
 
-    private static class TransactionPriorityComparator implements Comparator<Transaction>{
-        @Override
-        public int compare(Transaction tx1, Transaction tx2) {
-            int updateTimeComparison = tx1.getUpdateTime().compareTo(tx2.getUpdateTime());
-            //If time1==time2, compare by tx hash to make comparator consistent with equals
-            return updateTimeComparison!=0 ? updateTimeComparison : tx1.getHash().compareTo(tx2.getHash());
-        }
-    }
-	
+						}
+						if (allOutPointsAreInTheBestChain && allOutPointsAreMature && doesNotDoubleSpend) {
+							transactionsToInclude.add(tx);
+						}
+					}
+				}
+
+			}
+			if (!transactionsToInclude.isEmpty()) {
+				long pastTime = chain.getChainHead().getHeader().getTimeSeconds();
+				for (Transaction transaction : transactionsToInclude) {
+					if (pastTime < transaction.getnTime())
+						transactionsToInclude.remove(transaction);
+				}
+				return ImmutableSet.copyOf(Iterables.limit(transactionsToInclude, 1000));
+			}
+
+			return ImmutableSet.of();
+		} finally {
+			chain.getLock().unlock();
+		}
+
+	}
+
+	private static class TransactionPriorityComparator implements Comparator<Transaction> {
+		@Override
+		public int compare(Transaction tx1, Transaction tx2) {
+			int updateTimeComparison = tx1.getUpdateTime().compareTo(tx2.getUpdateTime());
+			// If time1==time2, compare by tx hash to make comparator consistent
+			// with equals
+			return updateTimeComparison != 0 ? updateTimeComparison : tx1.getHash().compareTo(tx2.getHash());
+		}
+	}
+
 }

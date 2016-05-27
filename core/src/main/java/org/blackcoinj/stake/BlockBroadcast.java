@@ -127,7 +127,7 @@ public class BlockBroadcast {
             numWaitingFor = (int) Math.ceil((peers.size() - numToBroadcastTo) / 2.0);
             Collections.shuffle(peers, random);
             peers = peers.subList(0, numToBroadcastTo);
-            log.info("broadcastBlock: We have {} peers, adding {} to the memory pool", numConnected, block.getHashAsString());
+            log.info("broadcastBlock: We have {} peers", numConnected);
             log.info("serializing:");
             log.info(Utils.HEX.encode(block.bitcoinSerialize()));
             log.info("Sending to {} peers, will wait for {}, sending to: {}", numToBroadcastTo, numWaitingFor, Joiner.on(",").join(peers));
