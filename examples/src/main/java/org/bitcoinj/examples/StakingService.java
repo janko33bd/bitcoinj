@@ -18,17 +18,14 @@
 package org.bitcoinj.examples;
 
 import org.bitcoinj.core.*;
-import org.bitcoinj.core.ECKey.ECDSASignature;
 import org.bitcoinj.kits.WalletAppKit;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.store.FullPrunedBlockStore;
 import org.bitcoinj.utils.BriefLogFormatter;
 
-import com.esotericsoftware.minlog.Log;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import java.io.File;
-import java.util.Iterator;
 import java.util.List;
 
 /**

@@ -2,6 +2,7 @@ package org.bitcoinj.examples;
 
 import static org.bitcoinj.script.ScriptOpCodes.OP_CHECKSIG;
 
+import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -28,11 +29,14 @@ import org.bitcoinj.core.TransactionInput;
 import org.bitcoinj.core.TransactionOutPoint;
 import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.UTXO;
+import org.bitcoinj.core.UnsafeByteArrayOutputStream;
 import org.bitcoinj.core.Utils;
+import org.bitcoinj.core.VarInt;
 import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.core.Wallet;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
+import org.bitcoinj.script.ScriptOpCodes;
 import org.bitcoinj.store.BlockStoreException;
 import org.bitcoinj.store.FullPrunedBlockStore;
 import org.blackcoinj.pos.BlackcoinMagic;
@@ -157,22 +161,31 @@ public class Staker extends AbstractExecutionThreadService {
 		return coinstakeTx;
 	}
 
-	private Transaction createCoinbaseTx() {
+	private Transaction createCoinbaseTx(StoredBlock prevBlock) {
 		Transaction coinbaseTransaction = new Transaction(params);
 		// max length 100
-		String coibaseMessage = "blackcoinj staked and Petra still loves me :)";
-		char[] chars = coibaseMessage.toCharArray();
-		byte[] bytes = new byte[chars.length];
-		for (int i = 0; i < bytes.length; i++)
-			bytes[i] = (byte) chars[i];
-		TransactionInput ti = new TransactionInput(params, coinbaseTransaction, bytes);
+		// Height first in coinbase required for block.version=2
+		int blockHeight = prevBlock.getHeight() + 1;
+		byte[] coinbaseScript = createCoinbaseScript(blockHeight);
+
+		TransactionInput ti = new TransactionInput(params, coinbaseTransaction, coinbaseScript);
 		coinbaseTransaction.addInput(ti);
 		coinbaseTransaction.addOutput(new TransactionOutput(params, coinbaseTransaction, Coin.ZERO, new byte[0]));
 		return coinbaseTransaction;
 	}
 
+	private byte[] createCoinbaseScript(int blockHeight) {
+		byte[] out = new byte[3];
+ 	   	out[0] = (byte) (0xFF & blockHeight);
+ 	   	out[1] = (byte) (0xFF & (blockHeight >> 8));
+ 	   	out[2] = (byte) (0xFF & (blockHeight >> 16));
+ 	   	Script coinbaseScript = new ScriptBuilder().op(ScriptOpCodes.OP_3).data(out).build();
+ 	   	log.info(coinbaseScript.toString());
+ 	   	return coinbaseScript.getProgram();
+	}
+
 	private void doStake(StoredBlock prevBlock, Transaction coinstakeTx) throws BlockStoreException {
-		Sha256Hash stakeKernelHash = null;
+		Sha256Hash stakeKernelHash;
 		long stakeTxTime = coinstakeTx.getnTime();
 		// TODO select coins for staking
 		List<TransactionOutput> calculateAllSpendCandidates = wallet.calculateAllSpendCandidates();
@@ -197,7 +210,7 @@ public class Staker extends AbstractExecutionThreadService {
 					log.error("tx ver failed: ", ex);
 				}
 
-				Transaction coinbaseTransaction = createCoinbaseTx();
+				Transaction coinbaseTransaction = createCoinbaseTx(prevBlock);
 				coinbaseTransaction.setnTime(coinstakeTx.getnTime());
 				log.info("new block before priv?" + key.hasPrivKey());
 				Block newBlock = new Block(params, BlackcoinMagic.blockVersion, prevBlock.getHeader().getHash(),
@@ -221,15 +234,6 @@ public class Staker extends AbstractExecutionThreadService {
 				log.info("coinstakeTx " + coinstakeTx.getnTime());
 				newBestBlockArrived = true;
 				stopStaking = true;
-				try {
-					Thread.sleep(180000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
 
 				break;
 			}
@@ -251,10 +255,10 @@ public class Staker extends AbstractExecutionThreadService {
 	}
 
 	private Sha256Hash checkForKernel(StoredBlock prevBlock, long difficultyTarget, long stakeTxTime,
-			TransactionOutput candidate) {
+			TransactionOutput candidate) throws BlockStoreException {
 		Sha256Hash stakeKernelHash = null;
 
-		try {
+		
 			TransactionOutPoint prevoutStake = candidate.getOutPointFor();
 			UTXO txPrev = store.getTransactionOutput(prevoutStake.getHash(), prevoutStake.getIndex());
 			if (txPrev == null) {
@@ -265,9 +269,7 @@ public class Staker extends AbstractExecutionThreadService {
 			BlackcoinPOS blkPOS = new BlackcoinPOS(store);
 			stakeKernelHash = blkPOS.checkStakeKernelHash(prevBlock, difficultyTarget, txPrev, stakeTxTime,
 					prevoutStake);
-		} catch (BlockStoreException ex) {
-			// either prevout was not found or stake kernel..
-		}
+		
 		return stakeKernelHash;
 	}
 
