@@ -36,6 +36,7 @@ import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.core.Wallet;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
+import org.bitcoinj.script.ScriptChunk;
 import org.bitcoinj.script.ScriptOpCodes;
 import org.bitcoinj.store.BlockStoreException;
 import org.bitcoinj.store.FullPrunedBlockStore;
@@ -114,22 +115,20 @@ public class Staker extends AbstractExecutionThreadService {
 
 	void stake() throws Exception {
 		newBestBlockArrived = false;
+		
 		StoredBlock prevBlock = chain.getChainHead();
-
 		Transaction coinstakeTx = initCoinstakeTx();
+		
 		while (isPastLasTime(prevBlock, coinstakeTx)) {
-			long sleep = (1 + BlackcoinMagic.futureDrift + prevBlock.getHeader().getTimeSeconds()
-					- coinstakeTx.getnTime()) * 1000;
-			log.info("sleep for " + sleep);
-			Thread.sleep(sleep);
+			Thread.sleep(BlackcoinMagic.minerMiliSleep);
 			prevBlock = chain.getChainHead();
 			coinstakeTx = initCoinstakeTx();
 		}
-		if (newBestBlockArrived)
-			return;
-
-		log.info("good times :)");
-		log.info("do stake");
+		
+		if (!newBestBlockArrived){
+			log.info("good times :)");
+			log.info("do stake");
+		}
 
 		while (!newBestBlockArrived) {
 			doStake(prevBlock, coinstakeTx);
@@ -155,7 +154,7 @@ public class Staker extends AbstractExecutionThreadService {
 
 	private Transaction initCoinstakeTx() {
 		Transaction coinstakeTx = new Transaction(params);
-		// apply black magic
+		// apply black magic https://en.wikipedia.org/wiki/Bitwise_operation#Mathematical_equivalents
 		coinstakeTx.setnTime(coinstakeTx.getnTime() & ~BlackcoinMagic.STAKE_TIMESTAMP_MASK);
 		coinstakeTx.addOutput(new TransactionOutput(params, null, Coin.ZERO, new byte[0]));
 		return coinstakeTx;
@@ -167,23 +166,29 @@ public class Staker extends AbstractExecutionThreadService {
 		// Height first in coinbase required for block.version=2
 		int blockHeight = prevBlock.getHeight() + 1;
 		byte[] coinbaseScript = createCoinbaseScript(blockHeight);
-
 		TransactionInput ti = new TransactionInput(params, coinbaseTransaction, coinbaseScript);
 		coinbaseTransaction.addInput(ti);
 		coinbaseTransaction.addOutput(new TransactionOutput(params, coinbaseTransaction, Coin.ZERO, new byte[0]));
 		return coinbaseTransaction;
 	}
-
+	
+//	 first byte is number of bytes in the number 
+//	 (will be 0x03 on main net for the next 150 or so years with 223-1 blocks), 
+//	 following bytes are little-endian representation of the number (including a sign bit).	
 	private byte[] createCoinbaseScript(int blockHeight) {
 		byte[] out = new byte[3];
  	   	out[0] = (byte) (0xFF & blockHeight);
  	   	out[1] = (byte) (0xFF & (blockHeight >> 8));
  	   	out[2] = (byte) (0xFF & (blockHeight >> 16));
- 	   	Script coinbaseScript = new ScriptBuilder().op(ScriptOpCodes.OP_3).data(out).build();
+ 	   	
+ 	   	ScriptBuilder coinbaseScriptBld = new ScriptBuilder();
+	   	ScriptChunk cnk = new ScriptChunk(ScriptOpCodes.OP_COINBASE, out);
+	   	coinbaseScriptBld.addChunk(cnk);
+ 	   	Script coinbaseScript = coinbaseScriptBld.build();
  	   	log.info(coinbaseScript.toString());
  	   	return coinbaseScript.getProgram();
 	}
-
+	
 	private void doStake(StoredBlock prevBlock, Transaction coinstakeTx) throws BlockStoreException {
 		Sha256Hash stakeKernelHash;
 		long stakeTxTime = coinstakeTx.getnTime();
@@ -198,8 +203,8 @@ public class Staker extends AbstractExecutionThreadService {
 			if (stakeKernelHash != null) {
 				log.info("kernel found");
 				Coin reward = Coin.valueOf(1, 50);
-				ECKey key = findWholeKey(candidate);
-
+				reward.add(candidate.getValue());
+				ECKey key = findWholeKey(candidate);				
 				Script keyScript = new ScriptBuilder().data(key.getPubKey()).op(OP_CHECKSIG).build();
 				coinstakeTx.addOutput(reward, keyScript);
 				coinstakeTx.addSignedInput(candidate, key);

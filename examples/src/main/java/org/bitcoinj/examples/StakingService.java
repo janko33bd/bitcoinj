@@ -91,6 +91,8 @@ public class StakingService {
             }
         });
         
+        Address sendToAddress = kit.wallet().currentReceiveKey().toAddress(params);
+        System.out.println("Send coins to: " + sendToAddress);
     	List<ECKey> issuedReceiveKeys = kit.wallet().getIssuedReceiveKeys();
     	for (ECKey code : issuedReceiveKeys) {
     		System.out.println("private keys:" + code.getPrivateKeyEncoded(params).toString());

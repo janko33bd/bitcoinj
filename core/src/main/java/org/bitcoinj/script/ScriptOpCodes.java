@@ -154,6 +154,8 @@ public class ScriptOpCodes {
     public static final int OP_NOP9 = 0xb8;
     public static final int OP_NOP10 = 0xb9;
     public static final int OP_INVALIDOPCODE = 0xff;
+    
+    public static final int OP_COINBASE = 0x03;
 
     private static final Map<Integer, String> opCodeMap = ImmutableMap.<Integer, String>builder()
         .put(OP_0, "0")
