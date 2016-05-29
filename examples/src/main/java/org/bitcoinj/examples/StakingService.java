@@ -97,9 +97,12 @@ public class StakingService {
     	for (ECKey code : issuedReceiveKeys) {
     		System.out.println("private keys:" + code.getPrivateKeyEncoded(params).toString());
 		}
+    	try {
+            Thread.sleep(Long.MAX_VALUE);
+        } catch (InterruptedException ignored) {}
         System.out.println("staking..");
         
-        stakeCoins(params, kit.peerGroup(),kit.wallet(),kit.store(),kit.chain());
+        //stakeCoins(params, kit.peerGroup(),kit.wallet(),kit.store(),kit.chain());
     }
 
     private static void stakeCoins(NetworkParameters params, PeerGroup peers, Wallet wallet, FullPrunedBlockStore store, AbstractBlockChain chain) {
