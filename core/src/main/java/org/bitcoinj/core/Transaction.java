@@ -420,6 +420,8 @@ public class Transaction extends ChildMessage implements Serializable {
         for (TransactionOutput output : outputs) {
             fee = fee.subtract(output.getValue());
         }
+        if(fee.isLessThan(Coin.ZERO))
+        	return Coin.ZERO;
         return fee;
     }
 
