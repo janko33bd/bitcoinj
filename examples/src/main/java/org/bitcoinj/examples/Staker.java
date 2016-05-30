@@ -2,7 +2,6 @@ package org.bitcoinj.examples;
 
 import static org.bitcoinj.script.ScriptOpCodes.OP_CHECKSIG;
 
-import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -29,9 +28,7 @@ import org.bitcoinj.core.TransactionInput;
 import org.bitcoinj.core.TransactionOutPoint;
 import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.UTXO;
-import org.bitcoinj.core.UnsafeByteArrayOutputStream;
 import org.bitcoinj.core.Utils;
-import org.bitcoinj.core.VarInt;
 import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.core.Wallet;
 import org.bitcoinj.script.Script;
@@ -45,6 +42,7 @@ import org.blackcoinj.pos.BlackcoinPOS;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public class Staker extends AbstractExecutionThreadService {
 
@@ -203,14 +201,18 @@ public class Staker extends AbstractExecutionThreadService {
 			if (stakeKernelHash != null) {
 				log.info("kernel found");
 				Coin reward = Coin.valueOf(1, 50);
-				reward.add(candidate.getValue());
+				reward = reward.add(candidate.getValue());
 				
-				if(reward.isLessThan(candidate.getValue()))
+				if(reward.isLessThan(candidate.getValue())){
 					throw new BlockStoreException("coinstake destroys money!!");
+				}
+					
 				
 				ECKey key = findWholeKey(candidate);				
 				Script keyScript = new ScriptBuilder().data(key.getPubKey()).op(OP_CHECKSIG).build();
-				coinstakeTx.addOutput(reward, keyScript);
+				
+				addCoinstakeOutput(coinstakeTx, reward, keyScript);
+				checkCoinStake(coinstakeTx, reward);
 				coinstakeTx.addSignedInput(candidate, key);
 				try {
 					coinstakeTx.verify();
@@ -248,6 +250,29 @@ public class Staker extends AbstractExecutionThreadService {
 			}
 
 		}
+	}
+
+	private void checkCoinStake(Transaction coinstakeTx, Coin reward) throws BlockStoreException {
+		Coin value = Coin.ZERO;
+		for(TransactionOutput out:coinstakeTx.getOutputs()){
+			value = value.add(out.getValue());
+		}
+		if (value.isLessThan(reward)){
+			throw new BlockStoreException("coinstake destroys money!");
+		}
+	}
+
+	private void addCoinstakeOutput(Transaction coinstakeTx, Coin reward, Script keyScript) {
+		if(reward.isGreaterThan(Coin.valueOf(BlackcoinMagic.spliStakeLimitCoins, 0))){
+			long split = reward.value/2;
+			coinstakeTx.addOutput(Coin.valueOf(split), keyScript);
+			coinstakeTx.addOutput(Coin.valueOf(reward.value - split), keyScript);
+			checkArgument(coinstakeTx.getOutputs().size() == 3);
+		} else {
+			coinstakeTx.addOutput(reward, keyScript);
+			checkArgument(coinstakeTx.getOutputs().size() == 2);
+		}
+		
 	}
 
 	private ECKey findWholeKey(TransactionOutput candidate) throws BlockStoreException {

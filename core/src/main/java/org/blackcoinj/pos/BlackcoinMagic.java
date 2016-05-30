@@ -1,7 +1,7 @@
 package org.blackcoinj.pos;
 
 import java.math.BigInteger;
-import org.bitcoinj.core.Sha256Hash;
+
 import org.bitcoinj.core.Utils;
 
 public class BlackcoinMagic {
@@ -47,8 +47,6 @@ public class BlackcoinMagic {
 	public static final int modifierInterval = 10 * 60;
 	
 	public static final int interval = targetTimespan / targetSpacing;
-	public static final String coin = "100000000";
-	public static final long nCoin = 100000000;
 	public static final long maxMoney = Long.MAX_VALUE;
 	public static final int protocolVersion = 60018;
 	public static final int minProtocolVersion = 60016;
@@ -90,4 +88,8 @@ public class BlackcoinMagic {
 	public static final long futureDrift = 15;
 
 	public static final long minerMiliSleep = 500;
+
+	public static final int spliStakeLimitCoins = 200;
+
+	
 }
