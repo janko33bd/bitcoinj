@@ -204,6 +204,10 @@ public class Staker extends AbstractExecutionThreadService {
 				log.info("kernel found");
 				Coin reward = Coin.valueOf(1, 50);
 				reward.add(candidate.getValue());
+				
+				if(reward.isGreaterThan(Coin.ZERO)&& reward.isLessThan(candidate.getValue()))
+					throw new BlockStoreException("coinstake destroys money!!");
+				
 				ECKey key = findWholeKey(candidate);				
 				Script keyScript = new ScriptBuilder().data(key.getPubKey()).op(OP_CHECKSIG).build();
 				coinstakeTx.addOutput(reward, keyScript);
