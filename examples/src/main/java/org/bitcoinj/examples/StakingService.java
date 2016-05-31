@@ -22,6 +22,7 @@ import org.bitcoinj.kits.WalletAppKit;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.store.FullPrunedBlockStore;
 import org.bitcoinj.utils.BriefLogFormatter;
+import org.blackcoinj.pos.Staker;
 
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;

@@ -1,4 +1,4 @@
-package org.bitcoinj.examples;
+package org.blackcoinj.pos;
 
 import static org.bitcoinj.script.ScriptOpCodes.OP_CHECKSIG;
 
@@ -37,8 +37,7 @@ import org.bitcoinj.script.ScriptChunk;
 import org.bitcoinj.script.ScriptOpCodes;
 import org.bitcoinj.store.BlockStoreException;
 import org.bitcoinj.store.FullPrunedBlockStore;
-import org.blackcoinj.pos.BlackcoinMagic;
-import org.blackcoinj.pos.BlackcoinPOS;
+
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
@@ -154,6 +153,7 @@ public class Staker extends AbstractExecutionThreadService {
 		Transaction coinstakeTx = new Transaction(params);
 		// apply black magic https://en.wikipedia.org/wiki/Bitwise_operation#Mathematical_equivalents
 		coinstakeTx.setnTime(coinstakeTx.getnTime() & ~BlackcoinMagic.STAKE_TIMESTAMP_MASK);
+		// Mark coin stake transaction
 		coinstakeTx.addOutput(new TransactionOutput(params, null, Coin.ZERO, new byte[0]));
 		return coinstakeTx;
 	}
@@ -195,35 +195,36 @@ public class Staker extends AbstractExecutionThreadService {
 		BigInteger bigNextTargetRequired = params.getNextTargetRequired(prevBlock, store);
 		long difficultyTarget = Utils.encodeCompactBits(bigNextTargetRequired);
 		for (TransactionOutput candidate : calculateAllSpendCandidates) {
-			// if (CheckKernel(pindexPrev, nBits, txNew.nTime - n,
+			// if (CheckKernel(pindexPrev, nBits, txNew.nTime,
 			// prevoutStake, &nBlockTime[not needed]))
 			stakeKernelHash = checkForKernel(prevBlock, difficultyTarget, stakeTxTime, candidate);
 			if (stakeKernelHash != null) {
 				log.info("kernel found");
-				Coin reward = Coin.valueOf(1, 50);
-				reward = reward.add(candidate.getValue());
-				
+				Coin reward = candidate.getValue();
+				reward = reward.add(Coin.valueOf(1, 50));
+				log.info("reward: " + reward);
+				log.info("candidate: " + candidate.getValue());
 				if(reward.isLessThan(candidate.getValue())){
 					throw new BlockStoreException("coinstake destroys money!!");
 				}
-					
 				
 				ECKey key = findWholeKey(candidate);				
 				Script keyScript = new ScriptBuilder().data(key.getPubKey()).op(OP_CHECKSIG).build();
 				
-				addCoinstakeOutput(coinstakeTx, reward, keyScript);
+				coinstakeTx.addOutput(reward, keyScript);
+				checkArgument(coinstakeTx.getOutputs().size() == 2);
 				checkCoinStake(coinstakeTx, reward);
 				coinstakeTx.addSignedInput(candidate, key);
 				try {
 					coinstakeTx.verify();
 					coinstakeTx.getInputs().get(0).verify();
 				} catch (VerificationException ex) {
-					log.error("tx ver failed: ", ex);
+					throw new BlockStoreException(ex);
 				}
 
 				Transaction coinbaseTransaction = createCoinbaseTx(prevBlock);
 				coinbaseTransaction.setnTime(coinstakeTx.getnTime());
-				log.info("new block before priv?" + key.hasPrivKey());
+				
 				Block newBlock = new Block(params, BlackcoinMagic.blockVersion, prevBlock.getHeader().getHash(),
 						coinstakeTx.getnTime(), difficultyTarget);
 				newBlock.addTransaction(coinbaseTransaction);
@@ -244,6 +245,7 @@ public class Staker extends AbstractExecutionThreadService {
 				log.info("blocktime " + newBlock.getTimeSeconds());
 				log.info("coinstakeTx " + coinstakeTx.getnTime());
 				newBestBlockArrived = true;
+				// TODO Don't stop
 				stopStaking = true;
 
 				break;
@@ -260,19 +262,6 @@ public class Staker extends AbstractExecutionThreadService {
 		if (value.isLessThan(reward)){
 			throw new BlockStoreException("coinstake destroys money!");
 		}
-	}
-
-	private void addCoinstakeOutput(Transaction coinstakeTx, Coin reward, Script keyScript) {
-		if(reward.isGreaterThan(Coin.valueOf(BlackcoinMagic.spliStakeLimitCoins, 0))){
-			long split = reward.value/2;
-			coinstakeTx.addOutput(Coin.valueOf(split), keyScript);
-			coinstakeTx.addOutput(Coin.valueOf(reward.value - split), keyScript);
-			checkArgument(coinstakeTx.getOutputs().size() == 3);
-		} else {
-			coinstakeTx.addOutput(reward, keyScript);
-			checkArgument(coinstakeTx.getOutputs().size() == 2);
-		}
-		
 	}
 
 	private ECKey findWholeKey(TransactionOutput candidate) throws BlockStoreException {

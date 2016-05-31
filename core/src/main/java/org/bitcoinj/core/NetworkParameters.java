@@ -154,12 +154,12 @@ public abstract class NetworkParameters implements Serializable {
     /**
      * The maximum number of coins to be generated
      */
-    public static final long MAX_COINS = 21000000;
+    public static final long MAX_COINS = Long.MAX_VALUE;
 
     /**
      * The maximum money to be generated
      */
-    public static final Coin MAX_MONEY = COIN.multiply(MAX_COINS);
+    public static final Coin MAX_MONEY = Coin.valueOf(Long.MAX_VALUE);
 
     /** Alias for TestNet3Params.get(), use that instead. */
     @Deprecated
