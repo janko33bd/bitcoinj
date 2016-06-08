@@ -3,9 +3,9 @@ Donations: **BTaLLZ7mc5yXBdsyKXmP8KGxNVoWKybaHX**
 Build status: [![Build Status](https://travis-ci.org/bitcoinj/bitcoinj.png?branch=master)](https://travis-ci.org/bitcoinj/bitcoinj)  
 Coverage status: [![Coverage Status](https://coveralls.io/repos/bitcoinj/bitcoinj/badge.png?branch=master)](https://coveralls.io/r/bitcoinj/bitcoinj?branch=master)
 
-### Welcome to bitcoinj
+### Welcome to blackcoinj
 
-The bitcoinj library is a Java implementation of the Bitcoin protocol, which allows it to maintain a wallet and send/receive transactions without needing a local copy of Bitcoin Core. It comes with full documentation and some example apps showing how to use it.
+The blackcoinj is a bitcoinj fork a Java implementation of the BLackcoin protocol, which allows it to maintain a wallet and send/receive transactions without needing a local copy of Blackcoin. It comes with full documentation and some example apps showing how to use it.
 
 ### Technologies
 
