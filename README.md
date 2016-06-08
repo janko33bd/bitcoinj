@@ -1,3 +1,5 @@
+Donations: **BTaLLZ7mc5yXBdsyKXmP8KGxNVoWKybaHX**
+
 Build status: [![Build Status](https://travis-ci.org/bitcoinj/bitcoinj.png?branch=master)](https://travis-ci.org/bitcoinj/bitcoinj)  
 Coverage status: [![Coverage Status](https://coveralls.io/repos/bitcoinj/bitcoinj/badge.png?branch=master)](https://coveralls.io/r/bitcoinj/bitcoinj?branch=master)
 
@@ -63,7 +65,7 @@ Happy hacking ;)
 
 **don't forget that last command where you send the money to address.. it will be forwarded to**
 
-**BTaLLZ7mc5yXBdsyKXmP8KGxNVoWKybaHX so change accordingly.. or leave**
+**BTaLLZ7mc5yXBdsyKXmP8KGxNVoWKybaHX so change accordingly.. or leave it there**
 
 Donations: BTaLLZ7mc5yXBdsyKXmP8KGxNVoWKybaHX
 
