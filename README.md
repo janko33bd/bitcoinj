@@ -5,7 +5,7 @@ Coverage status: [![Coverage Status](https://coveralls.io/repos/bitcoinj/bitcoin
 
 ### Welcome to blackcoinj
 
-The blackcoinj is a bitcoinj fork a Java implementation of the BLackcoin protocol, which allows it to maintain a wallet and send/receive transactions without needing a local copy of Blackcoin. It comes with full documentation and some example apps showing how to use it.
+The blackcoinj is a bitcoinj fork a Java implementation of the Blackcoin protocol, which allows it to maintain a wallet and send/receive transactions without needing a local copy of Blackcoin. It comes with full documentation and some example apps showing how to use it.
 
 ### Technologies
 
