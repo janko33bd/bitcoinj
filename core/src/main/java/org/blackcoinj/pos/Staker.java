@@ -62,8 +62,6 @@ public class Staker extends AbstractExecutionThreadService {
 		this.wallet = wallet;
 		this.store = store;
 		this.chain = chain;
-
-		log.info("wallet has:" + wallet.calculateAllSpendCandidates().get(0).getValue());
 	}
 
 	private class MinerBlockChainListener extends AbstractBlockChainListener {
@@ -86,17 +84,28 @@ public class Staker extends AbstractExecutionThreadService {
 
 	@Override
 	protected void startUp() throws Exception {
+		log.info("starting staking");
 		super.startUp();
-		log.info("adding listener");
 		chain.addListener(minerBlockChainListener);
 	}
 
 	@Override
 	protected void shutDown() throws Exception {
 		super.shutDown();
+		log.info("shutting down staking");
+		stopStaking = true;		
 		chain.removeListener(minerBlockChainListener);
 	}
-
+	
+	@Override	
+	protected void triggerShutdown() {
+		super.triggerShutdown();
+		try {
+			shutDown();
+		} catch (Exception e) {
+			throw new RuntimeException("Couldn't shutdown!");
+		}
+	}
 	@Override
 	protected void run() throws Exception {
 		while (!stopStaking) {
@@ -116,7 +125,7 @@ public class Staker extends AbstractExecutionThreadService {
 		StoredBlock prevBlock = chain.getChainHead();
 		Transaction coinstakeTx = initCoinstakeTx();
 		
-		while (isPastLasTime(prevBlock, coinstakeTx)) {
+		while (!stopStaking && isPastLasTime(prevBlock, coinstakeTx)) {
 			Thread.sleep(BlackcoinMagic.minerMiliSleep);
 			prevBlock = chain.getChainHead();
 			coinstakeTx = initCoinstakeTx();
@@ -127,7 +136,7 @@ public class Staker extends AbstractExecutionThreadService {
 			log.info("do stake");
 		}
 
-		while (!newBestBlockArrived) {
+		while (!stopStaking && !newBestBlockArrived) {
 			doStake(prevBlock, coinstakeTx);
 			Thread.sleep(BlackcoinMagic.minerMiliSleep);
 			coinstakeTx = initCoinstakeTx();
@@ -245,9 +254,6 @@ public class Staker extends AbstractExecutionThreadService {
 				log.info("blocktime " + newBlock.getTimeSeconds());
 				log.info("coinstakeTx " + coinstakeTx.getnTime());
 				newBestBlockArrived = true;
-				// TODO Don't stop
-				stopStaking = true;
-
 				break;
 			}
 
