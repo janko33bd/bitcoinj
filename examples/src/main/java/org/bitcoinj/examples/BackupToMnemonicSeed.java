@@ -1,4 +1,6 @@
 /*
+ * Copyright by the original author or authors.
+ * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,9 +18,9 @@ package org.bitcoinj.examples;
 
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Utils;
-import org.bitcoinj.core.Wallet;
 import org.bitcoinj.params.TestNet3Params;
 import org.bitcoinj.wallet.DeterministicSeed;
+import org.bitcoinj.wallet.Wallet;
 
 /**
  * The following example shows you how to create a deterministic seed from a hierarchical deterministic wallet represented as a mnemonic code.
@@ -39,6 +41,6 @@ public class BackupToMnemonicSeed {
         System.out.println("seed: " + seed.toString());
 
         System.out.println("creation time: " + seed.getCreationTimeSeconds());
-        System.out.println("mnemonicCode: " + Utils.join(seed.getMnemonicCode()));
+        System.out.println("mnemonicCode: " + Utils.SPACE_JOINER.join(seed.getMnemonicCode()));
     }
 }

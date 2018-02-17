@@ -21,14 +21,18 @@ import org.bitcoinj.core.*;
 import org.bitcoinj.crypto.TransactionSignature;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
+import org.bitcoinj.wallet.SendRequest;
+import org.bitcoinj.wallet.Wallet;
+
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.spongycastle.crypto.params.KeyParameter;
 
-import java.util.Arrays;
+import javax.annotation.Nullable;
 import java.util.Locale;
 
 import static com.google.common.base.Preconditions.*;
@@ -126,9 +130,9 @@ public class PaymentChannelV1ServerState extends PaymentChannelServerState {
         // Verify that the refund transaction has a single input (that we can fill to sign the multisig output).
         if (refundTx.getInputs().size() != 1)
             throw new VerificationException("Refund transaction does not have exactly one input");
-        // Verify that the refund transaction has a time lock on it and a sequence number of zero.
-        if (refundTx.getInput(0).getSequenceNumber() != 0)
-            throw new VerificationException("Refund transaction's input's sequence number is non-0");
+        // Verify that the refund transaction has a time lock on it and a sequence number that does not disable lock time.
+        if (refundTx.getInput(0).getSequenceNumber() == TransactionInput.NO_SEQUENCE)
+            throw new VerificationException("Refund transaction's input's sequence number disables lock time");
         if (refundTx.getLockTime() < minExpireTime)
             throw new VerificationException("Refund transaction has a lock time too soon");
         // Verify the transaction has one output (we don't care about its contents, its up to the client)
@@ -161,8 +165,9 @@ public class PaymentChannelV1ServerState extends PaymentChannelServerState {
     }
 
     // Signs the first input of the transaction which must spend the multisig contract.
-    private void signMultisigInput(Transaction tx, Transaction.SigHash hashType, boolean anyoneCanPay) {
-        TransactionSignature signature = tx.calculateSignature(0, serverKey, getContractScript(), hashType, anyoneCanPay);
+    private void signMultisigInput(Transaction tx, Transaction.SigHash hashType,
+                                   boolean anyoneCanPay, @Nullable KeyParameter userKey) {
+        TransactionSignature signature = tx.calculateSignature(0, serverKey, userKey, getContractScript(), hashType, anyoneCanPay);
         byte[] mySig = signature.encodeToBitcoin();
         Script scriptSig = ScriptBuilder.createMultiSigInputScriptBytes(ImmutableList.of(bestValueSignature, mySig));
         tx.getInput(0).setScriptSig(scriptSig);
@@ -172,20 +177,21 @@ public class PaymentChannelV1ServerState extends PaymentChannelServerState {
     /**
      * <p>Closes this channel and broadcasts the highest value payment transaction on the network.</p>
      *
-     * <p>This will set the state to {@link State#CLOSED} if the transaction is successfully broadcast on the network.
-     * If we fail to broadcast for some reason, the state is set to {@link State#ERROR}.</p>
+     * <p>This will set the state to {@link org.bitcoinj.protocols.channels.PaymentChannelServerState.State#CLOSED} if the transaction is successfully broadcast on the network.
+     * If we fail to broadcast for some reason, the state is set to {@link org.bitcoinj.protocols.channels.PaymentChannelServerState.State#ERROR}.</p>
      *
-     * <p>If the current state is before {@link State#READY} (ie we have not finished initializing the channel), we
-     * simply set the state to {@link State#CLOSED} and let the client handle getting its refund transaction confirmed.
+     * <p>If the current state is before {@link org.bitcoinj.protocols.channels.PaymentChannelServerState.State#READY} (ie we have not finished initializing the channel), we
+     * simply set the state to {@link org.bitcoinj.protocols.channels.PaymentChannelServerState.State#CLOSED} and let the client handle getting its refund transaction confirmed.
      * </p>
      *
+     * @param userKey The AES key to use for decryption of the private key. If null then no decryption is required.
      * @return a future which completes when the provided multisig contract successfully broadcasts, or throws if the
      *         broadcast fails for some reason. Note that if the network simply rejects the transaction, this future
      *         will never complete, a timeout should be used.
      * @throws InsufficientMoneyException If the payment tx would have cost more in fees to spend than it is worth.
      */
     @Override
-    public synchronized ListenableFuture<Transaction> close() throws InsufficientMoneyException {
+    public synchronized ListenableFuture<Transaction> close(@Nullable KeyParameter userKey) throws InsufficientMoneyException {
         if (storedServerChannel != null) {
             StoredServerChannel temp = storedServerChannel;
             storedServerChannel = null;
@@ -209,13 +215,13 @@ public class PaymentChannelV1ServerState extends PaymentChannelServerState {
         }
         Transaction tx = null;
         try {
-            Wallet.SendRequest req = makeUnsignedChannelContract(bestValueToMe);
+            SendRequest req = makeUnsignedChannelContract(bestValueToMe);
             tx = req.tx;
             // Provide a throwaway signature so that completeTx won't complain out about unsigned inputs it doesn't
             // know how to sign. Note that this signature does actually have to be valid, so we can't use a dummy
             // signature to save time, because otherwise completeTx will try to re-sign it to make it valid and then
             // die. We could probably add features to the SendRequest API to make this a bit more efficient.
-            signMultisigInput(tx, Transaction.SigHash.NONE, true);
+            signMultisigInput(tx, Transaction.SigHash.NONE, true, userKey);
             // Let wallet handle adding additional inputs/fee as necessary.
             req.shuffleOutputs = false;
             req.missingSigsMode = Wallet.MissingSigsMode.USE_DUMMY_SIG;
@@ -228,7 +234,7 @@ public class PaymentChannelV1ServerState extends PaymentChannelServerState {
                 throw new InsufficientMoneyException(feePaidForPayment.subtract(bestValueToMe), msg);
             }
             // Now really sign the multisig input.
-            signMultisigInput(tx, Transaction.SigHash.ALL, false);
+            signMultisigInput(tx, Transaction.SigHash.ALL, false, userKey);
             // Some checks that shouldn't be necessary but it can't hurt to check.
             tx.verify();  // Sanity check syntax.
             for (TransactionInput input : tx.getInputs())

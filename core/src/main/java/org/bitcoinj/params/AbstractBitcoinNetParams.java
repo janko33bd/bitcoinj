@@ -1,5 +1,6 @@
 /*
  * Copyright 2013 Google Inc.
+ * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +17,15 @@
 
 package org.bitcoinj.params;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import java.math.BigInteger;
+import java.util.concurrent.TimeUnit;
 
 import org.bitcoinj.core.Block;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.core.StoredBlock;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.Utils;
@@ -31,14 +36,20 @@ import org.bitcoinj.store.BlockStoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Stopwatch;
+
+import org.bitcoinj.core.BitcoinSerializer;
+
 /**
  * Parameters for Bitcoin-like networks.
  */
 public abstract class AbstractBitcoinNetParams extends NetworkParameters {
+
     /**
      * Scheme part for Bitcoin URIs.
      */
     public static final String BITCOIN_SCHEME = "bitcoin";
+    public static final int REWARD_HALVING_INTERVAL = 210000;
 
     private static final Logger log = LoggerFactory.getLogger(AbstractBitcoinNetParams.class);
 
@@ -46,22 +57,31 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
         super();
     }
 
-    /** 
-     * Checks if we are at a difficulty transition point. 
-     * @param storedPrev The previous stored block 
-     * @return If this is a difficulty transition point 
+    /**
+     * Checks if we are at a reward halving point.
+     * @param height The height of the previous stored block
+     * @return If this is a reward halving point
      */
-    protected boolean isDifficultyTransitionPoint(StoredBlock storedPrev) {
-        return ((storedPrev.getHeight() + 1) % this.getInterval()) == 0;
+    public final boolean isRewardHalvingPoint(final int height) {
+        return ((height + 1) % REWARD_HALVING_INTERVAL) == 0;
+    }
+
+    /**
+     * Checks if we are at a difficulty transition point.
+     * @param height The height of the previous stored block
+     * @return If this is a difficulty transition point
+     */
+    public final boolean isDifficultyTransitionPoint(final int height) {
+        return ((height + 1) % this.getInterval()) == 0;
     }
 
     @Override
     public void checkDifficultyTransitions(final StoredBlock storedPrev, final Block nextBlock,
     	final BlockStore blockStore) throws VerificationException, BlockStoreException {
-        Block prev = storedPrev.getHeader();
+        final Block prev = storedPrev.getHeader();
 
         // Is this supposed to be a difficulty transition point?
-        if (!isDifficultyTransitionPoint(storedPrev)) {
+        if (!isDifficultyTransitionPoint(storedPrev.getHeight())) {
 
             // No ... so check the difficulty didn't actually change.
             if (nextBlock.getDifficultyTarget() != prev.getDifficultyTarget())
@@ -73,19 +93,24 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
 
         // We need to find a block far back in the chain. It's OK that this is expensive because it only occurs every
         // two weeks after the initial block chain download.
-        long now = System.currentTimeMillis();
-        StoredBlock cursor = blockStore.get(prev.getHash());
-        for (int i = 0; i < this.getInterval() - 1; i++) {
+        final Stopwatch watch = Stopwatch.createStarted();
+        Sha256Hash hash = prev.getHash();
+        StoredBlock cursor = null;
+        final int interval = this.getInterval();
+        for (int i = 0; i < interval; i++) {
+            cursor = blockStore.get(hash);
             if (cursor == null) {
                 // This should never happen. If it does, it means we are following an incorrect or busted chain.
                 throw new VerificationException(
-                        "Difficulty transition point but we did not find a way back to the genesis block.");
+                        "Difficulty transition point but we did not find a way back to the last transition point. Not found: " + hash);
             }
-            cursor = blockStore.get(cursor.getHeader().getPrevBlockHash());
+            hash = cursor.getHeader().getPrevBlockHash();
         }
-        long elapsed = System.currentTimeMillis() - now;
-        if (elapsed > 50)
-            log.info("Difficulty transition traversal took {}msec", elapsed);
+        checkState(cursor != null && isDifficultyTransitionPoint(cursor.getHeight() - 1),
+                "Didn't arrive at a transition point.");
+        watch.stop();
+        if (watch.elapsed(TimeUnit.MILLISECONDS) > 50)
+            log.info("Difficulty transition traversal took {}", watch);
 
         Block blockIntervalAgo = cursor.getHeader();
         int timespan = (int) (prev.getTimeSeconds() - blockIntervalAgo.getTimeSeconds());
@@ -115,7 +140,7 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
 
         if (newTargetCompact != receivedTargetCompact)
             throw new VerificationException("Network provided difficulty bits do not match what was calculated: " +
-                    newTargetCompact + " vs " + receivedTargetCompact);
+                    Long.toHexString(newTargetCompact) + " vs " + Long.toHexString(receivedTargetCompact));
     }
 
     @Override
@@ -131,6 +156,16 @@ public abstract class AbstractBitcoinNetParams extends NetworkParameters {
     @Override
     public MonetaryFormat getMonetaryFormat() {
         return new MonetaryFormat();
+    }
+
+    @Override
+    public int getProtocolVersionNum(final ProtocolVersion version) {
+        return version.getBitcoinProtocolVersion();
+    }
+
+    @Override
+    public BitcoinSerializer getSerializer(boolean parseRetain) {
+        return new BitcoinSerializer(this, parseRetain);
     }
 
     @Override

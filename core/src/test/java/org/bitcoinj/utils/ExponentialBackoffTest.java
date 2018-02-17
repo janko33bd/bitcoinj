@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,8 +25,6 @@ import java.util.PriorityQueue;
 
 import static org.junit.Assert.*;
 
-/**
- */
 public class ExponentialBackoffTest {
     private ExponentialBackoff.Params params;
     private ExponentialBackoff backoff;
@@ -62,7 +60,7 @@ public class ExponentialBackoffTest {
 
     @Test
     public void testInQueue() {
-        PriorityQueue<ExponentialBackoff> queue = new PriorityQueue<ExponentialBackoff>();
+        PriorityQueue<ExponentialBackoff> queue = new PriorityQueue<>();
         ExponentialBackoff backoff1 = new ExponentialBackoff(params);
         backoff.trackFailure();
         backoff.trackFailure();

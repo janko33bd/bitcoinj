@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,9 +16,9 @@
 
 package org.bitcoinj.jni;
 
-import org.bitcoinj.core.listeners.ScriptsChangeEventListener;
-import org.bitcoinj.core.Wallet;
 import org.bitcoinj.script.Script;
+import org.bitcoinj.wallet.Wallet;
+import org.bitcoinj.wallet.listeners.ScriptsChangeEventListener;
 
 import java.util.List;
 

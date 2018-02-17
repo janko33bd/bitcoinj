@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Matija Mazi.
  * Copyright 2014 Andreas Schildbach
  *
@@ -14,11 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.bitcoinj.crypto;
 
 import org.bitcoinj.core.*;
+
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 import org.spongycastle.crypto.params.KeyParameter;
 import org.spongycastle.math.ec.ECPoint;
@@ -49,8 +51,6 @@ public class DeterministicKey extends ECKey {
             return cn1.compareTo(cn2);
         }
     };
-
-    private static final long serialVersionUID = 1L;
 
     private final DeterministicKey parent;
     private final ImmutableList<ChildNumber> childNumberPath;
@@ -130,7 +130,7 @@ public class DeterministicKey extends ECKey {
      * information about its parent key.  Invoked when deserializing, but otherwise not something that
      * you normally should use.
      */
-    private DeterministicKey(ImmutableList<ChildNumber> childNumberPath,
+    public DeterministicKey(ImmutableList<ChildNumber> childNumberPath,
                             byte[] chainCode,
                             LazyECPoint publicAsPoint,
                             @Nullable DeterministicKey parent,
@@ -150,7 +150,7 @@ public class DeterministicKey extends ECKey {
      * information about its parent key.  Invoked when deserializing, but otherwise not something that
      * you normally should use.
      */
-    private DeterministicKey(ImmutableList<ChildNumber> childNumberPath,
+    public DeterministicKey(ImmutableList<ChildNumber> childNumberPath,
                             byte[] chainCode,
                             BigInteger priv,
                             @Nullable DeterministicKey parent,
@@ -355,13 +355,13 @@ public class DeterministicKey extends ECKey {
     public ECDSASignature sign(Sha256Hash input, @Nullable KeyParameter aesKey) throws KeyCrypterException {
         if (isEncrypted()) {
             // If the key is encrypted, ECKey.sign will decrypt it first before rerunning sign. Decryption walks the
-            // key heirarchy to find the private key (see below), so, we can just run the inherited method.
+            // key hierarchy to find the private key (see below), so, we can just run the inherited method.
             return super.sign(input, aesKey);
         } else {
             // If it's not encrypted, derive the private via the parents.
             final BigInteger privateKey = findOrDerivePrivateKey();
             if (privateKey == null) {
-                // This key is a part of a public-key only heirarchy and cannot be used for signing
+                // This key is a part of a public-key only hierarchy and cannot be used for signing
                 throw new MissingPrivateKeyException();
             }
             return super.doSign(input, privateKey);
@@ -501,13 +501,10 @@ public class DeterministicKey extends ECKey {
     /**
       * Deserialize a base-58-encoded HD Key.
       *  @param parent The parent node in the given key's deterministic hierarchy.
+      *  @throws IllegalArgumentException if the base58 encoded key could not be parsed.
       */
     public static DeterministicKey deserializeB58(@Nullable DeterministicKey parent, String base58, NetworkParameters params) {
-        try {
-            return deserialize(params, Base58.decodeChecked(base58), parent);
-        } catch (AddressFormatException e) {
-            throw new IllegalArgumentException(e);
-        }
+        return deserialize(params, Base58.decodeChecked(base58), parent);
     }
 
     /**
@@ -586,16 +583,14 @@ public class DeterministicKey extends ECKey {
     }
 
     /**
-     * Verifies equality of all fields but NOT the parent pointer (thus the same key derived in two separate heirarchy
+     * Verifies equality of all fields but NOT the parent pointer (thus the same key derived in two separate hierarchy
      * objects will equal each other.
      */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
         DeterministicKey other = (DeterministicKey) o;
-
         return super.equals(other)
                 && Arrays.equals(this.chainCode, other.chainCode)
                 && Objects.equal(this.childNumberPath, other.childNumberPath);
@@ -603,15 +598,12 @@ public class DeterministicKey extends ECKey {
 
     @Override
     public int hashCode() {
-        int result = super.hashCode();
-        result = 31 * result + childNumberPath.hashCode();
-        result = 31 * result + Arrays.hashCode(chainCode);
-        return result;
+        return Objects.hashCode(super.hashCode(), Arrays.hashCode(chainCode), childNumberPath);
     }
 
     @Override
     public String toString() {
-        final ToStringHelper helper = Objects.toStringHelper(this).omitNullValues();
+        final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).omitNullValues();
         helper.add("pub", Utils.HEX.encode(pub.getEncoded()));
         helper.add("chainCode", HEX.encode(chainCode));
         helper.add("path", getPathAsString());
@@ -623,13 +615,14 @@ public class DeterministicKey extends ECKey {
     }
 
     @Override
-    public void formatKeyWithAddress(boolean includePrivateKeys, StringBuilder builder, NetworkParameters params) {
+    public void formatKeyWithAddress(boolean includePrivateKeys, @Nullable KeyParameter aesKey, StringBuilder builder,
+            NetworkParameters params) {
         final Address address = toAddress(params);
         builder.append("  addr:").append(address);
         builder.append("  hash160:").append(Utils.HEX.encode(getPubKeyHash()));
         builder.append("  (").append(getPathAsString()).append(")\n");
         if (includePrivateKeys) {
-            builder.append("  ").append(toStringWithPrivate(params)).append("\n");
+            builder.append("  ").append(toStringWithPrivate(aesKey, params)).append("\n");
         }
     }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  * Copyright 2014 Andreas Schildbach
  *
@@ -54,7 +54,7 @@ public class PaymentProtocol {
 
     /**
      * Create a payment request with one standard pay to address output. You may want to sign the request using
-     * {@link #signPaymentRequest}. Use {@link Protos.PaymentRequest.Builder#build} to get the actual payment
+     * {@link #signPaymentRequest}. Use {@link org.bitcoin.protocols.payments.Protos.PaymentRequest.Builder#build} to get the actual payment
      * request.
      *
      * @param params network parameters
@@ -74,7 +74,7 @@ public class PaymentProtocol {
 
     /**
      * Create a payment request. You may want to sign the request using {@link #signPaymentRequest}. Use
-     * {@link Protos.PaymentRequest.Builder#build} to get the actual payment request.
+     * {@link org.bitcoin.protocols.payments.Protos.PaymentRequest.Builder#build} to get the actual payment request.
      * 
      * @param params network parameters
      * @param outputs list of outputs to request coins to
@@ -157,7 +157,7 @@ public class PaymentProtocol {
      * 
      * @param paymentRequest Payment request to verify.
      * @param trustStore KeyStore of trusted root certificate authorities.
-     * @return verification data, or null if no PKI method was specified in the {@link Protos.PaymentRequest}.
+     * @return verification data, or null if no PKI method was specified in the {@link org.bitcoin.protocols.payments.Protos.PaymentRequest}.
      * @throws PaymentProtocolException if payment request could not be verified.
      */
     @Nullable
@@ -340,7 +340,7 @@ public class PaymentProtocol {
      */
     public static List<Transaction> parseTransactionsFromPaymentMessage(NetworkParameters params,
             Protos.Payment paymentMessage) {
-        final List<Transaction> transactions = new ArrayList<Transaction>(paymentMessage.getTransactionsCount());
+        final List<Transaction> transactions = new ArrayList<>(paymentMessage.getTransactionsCount());
         for (final ByteString transaction : paymentMessage.getTransactionsList())
             transactions.add(params.getDefaultSerializer().makeTransaction(transaction.toByteArray()));
         return transactions;

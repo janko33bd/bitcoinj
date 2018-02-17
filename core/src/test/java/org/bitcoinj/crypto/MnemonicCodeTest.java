@@ -171,7 +171,7 @@ public class MnemonicCodeTest {
             byte[] entropy = mc.toEntropy(split(vecCode));
 
             assertEquals(vecData, HEX.encode(entropy));
-            assertEquals(vecCode, Utils.join(code));
+            assertEquals(vecCode, Utils.SPACE_JOINER.join(code));
             assertEquals(vecSeed, HEX.encode(seed));
         }
     }
@@ -213,6 +213,6 @@ public class MnemonicCodeTest {
     }
 
     public static List<String> split(String words) {
-        return new ArrayList<String>(Arrays.asList(words.split("\\s+")));
+        return new ArrayList<>(Arrays.asList(words.split("\\s+")));
     }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2011 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,7 @@
 package org.bitcoinj.core.listeners;
 
 import org.bitcoinj.core.Peer;
+import org.bitcoinj.core.PeerGroup;
 
 /**
  * <p>Implementors can listen to events indicating a peer disconnecting.</p>

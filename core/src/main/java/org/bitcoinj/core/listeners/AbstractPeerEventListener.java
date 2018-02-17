@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2011 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,34 +14,30 @@
  * limitations under the License.
  */
 
-package org.bitcoinj.core;
+package org.bitcoinj.core.listeners;
 
+import org.bitcoinj.core.Block;
+import org.bitcoinj.core.FilteredBlock;
+import org.bitcoinj.core.GetDataMessage;
+import org.bitcoinj.core.Message;
+import org.bitcoinj.core.PeerAddress;
+import org.bitcoinj.core.Peer;
+import org.bitcoinj.core.Transaction;
 import javax.annotation.*;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Convenience implementation of {@link PeerEventListener}.
+ * Deprecated: implement the more specific event listener interfaces instead to fill out only what you need
  */
-public class AbstractPeerEventListener implements PeerEventListener {
-    @Override
-    public void onPeersDiscovered(Set<PeerAddress> peerAddresses) {
-    }
-
+@Deprecated
+public abstract class AbstractPeerEventListener extends AbstractPeerDataEventListener implements PeerConnectionEventListener, OnTransactionBroadcastListener {
     @Override
     public void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
     }
 
     @Override
     public void onChainDownloadStarted(Peer peer, int blocksLeft) {
-    }
-
-    @Override
-    public void onPeerConnected(Peer peer, int peerCount) {
-    }
-
-    @Override
-    public void onPeerDisconnected(Peer peer, int peerCount) {
     }
 
     @Override
@@ -57,5 +53,17 @@ public class AbstractPeerEventListener implements PeerEventListener {
     @Override
     public List<Message> getData(Peer peer, GetDataMessage m) {
         return null;
+    }
+
+    @Override
+    public void onPeersDiscovered(Set<PeerAddress> peerAddresses) {
+    }
+
+    @Override
+    public void onPeerConnected(Peer peer, int peerCount) {
+    }
+
+    @Override
+    public void onPeerDisconnected(Peer peer, int peerCount) {
     }
 }

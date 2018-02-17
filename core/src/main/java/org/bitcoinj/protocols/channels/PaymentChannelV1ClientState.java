@@ -20,9 +20,13 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import org.bitcoinj.core.*;
 import org.bitcoinj.crypto.TransactionSignature;
+import org.bitcoinj.protocols.channels.IPaymentChannelClient.ClientChannelProperties;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
+import org.bitcoinj.script.ScriptException;
 import org.bitcoinj.wallet.AllowUnconfirmedCoinSelector;
+import org.bitcoinj.wallet.SendRequest;
+import org.bitcoinj.wallet.Wallet;
 import org.spongycastle.crypto.params.KeyParameter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -69,15 +73,14 @@ public class PaymentChannelV1ClientState extends PaymentChannelClientState {
 
     /**
      * Creates a state object for a payment channel client. It is expected that you be ready to
-     * {@link PaymentChannelV1ClientState#initiate()} after construction (to avoid creating objects for channels which are
+     * {@link PaymentChannelClientState#initiate(KeyParameter, org.bitcoinj.protocols.channels.IPaymentChannelClient.ClientChannelProperties)} after construction (to avoid creating objects for channels which are
      * not going to finish opening) and thus some parameters provided here are only used in
-     * {@link PaymentChannelV1ClientState#initiate()} to create the Multisig contract and refund transaction.
+     * {@link PaymentChannelClientState#initiate(KeyParameter, org.bitcoinj.protocols.channels.IPaymentChannelClient.ClientChannelProperties)} to create the Multisig contract and refund transaction.
      *
      * @param wallet a wallet that contains at least the specified amount of value.
      * @param myKey a freshly generated private key for this channel.
      * @param serverMultisigKey a public key retrieved from the server used for the initial multisig contract
      * @param value how many satoshis to put into this contract. If the channel reaches this limit, it must be closed.
-     *              It is suggested you use at least {@link Coin#CENT} to avoid paying fees if you need to spend the refund transaction
      * @param expiryTimeInSeconds At what point (UNIX timestamp +/- a few hours) the channel will expire
      *
      * @throws VerificationException If either myKey's pubkey or serverKey's pubkey are non-canonical (ie invalid)
@@ -114,17 +117,17 @@ public class PaymentChannelV1ClientState extends PaymentChannelClientState {
     /**
      * Creates the initial multisig contract and incomplete refund transaction which can be requested at the appropriate
      * time using {@link PaymentChannelV1ClientState#getIncompleteRefundTransaction} and
-     * {@link PaymentChannelV1ClientState#getContract()}. The way the contract is crafted can be adjusted by
-     * overriding {@link PaymentChannelV1ClientState#editContractSendRequest(org.bitcoinj.core.Wallet.SendRequest)}.
+     * {@link PaymentChannelV1ClientState#getContract()}.
      * By default unconfirmed coins are allowed to be used, as for micropayments the risk should be relatively low.
      * @param userKey Key derived from a user password, needed for any signing when the wallet is encrypted.
-     *                  The wallet KeyCrypter is assumed.
+     *                The wallet KeyCrypter is assumed.
+     * @param clientChannelProperties Modify the channel's configuration.
      *
      * @throws ValueOutOfRangeException   if the value being used is too small to be accepted by the network
      * @throws InsufficientMoneyException if the wallet doesn't contain enough balance to initiate
      */
     @Override
-    public synchronized void initiate(@Nullable KeyParameter userKey) throws ValueOutOfRangeException, InsufficientMoneyException {
+    public synchronized void initiate(@Nullable KeyParameter userKey, ClientChannelProperties clientChannelProperties) throws ValueOutOfRangeException, InsufficientMoneyException {
         final NetworkParameters params = wallet.getParams();
         Transaction template = new Transaction(params);
         // We always place the client key before the server key because, if either side wants some privacy, they can
@@ -136,11 +139,11 @@ public class PaymentChannelV1ClientState extends PaymentChannelClientState {
         TransactionOutput multisigOutput = template.addOutput(totalValue, ScriptBuilder.createMultiSigOutputScript(2, keys));
         if (multisigOutput.isDust())
             throw new ValueOutOfRangeException("totalValue too small to use");
-        Wallet.SendRequest req = Wallet.SendRequest.forTx(template);
+        SendRequest req = SendRequest.forTx(template);
         req.coinSelector = AllowUnconfirmedCoinSelector.get();
-        editContractSendRequest(req);
         req.shuffleOutputs = false;   // TODO: Fix things so shuffling is usable.
-        req.aesKey = userKey;
+        req = clientChannelProperties.modifyContractSendRequest(req);
+        if (userKey != null) req.aesKey = userKey;
         wallet.completeTx(req);
         Coin multisigFee = req.tx.getFee();
         multisigContract = req.tx;
@@ -151,9 +154,11 @@ public class PaymentChannelV1ClientState extends PaymentChannelClientState {
         // in future as it breaks the intended design of timelocking/tx replacement, but for now it simplifies this
         // specific protocol somewhat.
         refundTx = new Transaction(params);
-        refundTx.addInput(multisigOutput).setSequenceNumber(0);   // Allow replacement when it's eventually reactivated.
+        // don't disable lock time. the sequence will be included in the server's signature and thus won't be changeable.
+        // by using this sequence value, we avoid extra full replace-by-fee and relative lock time processing.
+        refundTx.addInput(multisigOutput).setSequenceNumber(TransactionInput.NO_SEQUENCE - 1L);
         refundTx.setLockTime(expiryTime);
-        if (totalValue.compareTo(Coin.CENT) < 0) {
+        if (Context.get().isEnsureMinRequiredFee()) {
             // Must pay min fee.
             final Coin valueAfterFee = totalValue.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE);
             if (Transaction.MIN_NONDUST_OUTPUT.compareTo(valueAfterFee) > 0)

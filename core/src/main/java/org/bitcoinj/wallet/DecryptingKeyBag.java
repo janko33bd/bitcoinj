@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 The bitcoinj authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,7 +54,7 @@ public class DecryptingKeyBag implements KeyBag {
     }
 
     private RedeemData maybeDecrypt(RedeemData redeemData) {
-        List<ECKey> decryptedKeys = new ArrayList<ECKey>();
+        List<ECKey> decryptedKeys = new ArrayList<>();
         for (ECKey key : redeemData.keys) {
             decryptedKeys.add(maybeDecrypt(key));
         }

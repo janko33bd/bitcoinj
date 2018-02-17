@@ -1,4 +1,6 @@
 /*
+ * Copyright by the original author or authors.
+ * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -20,6 +22,7 @@ import org.bitcoinj.net.discovery.DnsDiscovery;
 import org.bitcoinj.params.TestNet3Params;
 import org.bitcoinj.store.SPVBlockStore;
 import org.bitcoinj.wallet.DeterministicSeed;
+import org.bitcoinj.wallet.Wallet;
 
 import java.io.File;
 
@@ -58,12 +61,12 @@ public class RestoreFromSeed {
         // Setting up the BlochChain, the BlocksStore and connecting to the network.
         SPVBlockStore chainStore = new SPVBlockStore(params, chainFile);
         BlockChain chain = new BlockChain(params, chainStore);
-        PeerGroup peers = new PeerGroup(params, chain);
-        peers.addPeerDiscovery(new DnsDiscovery(params));
+        PeerGroup peerGroup = new PeerGroup(params, chain);
+        peerGroup.addPeerDiscovery(new DnsDiscovery(params));
 
         // Now we need to hook the wallet up to the blockchain and the peers. This registers event listeners that notify our wallet about new transactions.
         chain.addWallet(wallet);
-        peers.addWallet(wallet);
+        peerGroup.addWallet(wallet);
 
         DownloadProgressTracker bListener = new DownloadProgressTracker() {
             @Override
@@ -73,8 +76,8 @@ public class RestoreFromSeed {
         };
 
         // Now we re-download the blockchain. This replays the chain into the wallet. Once this is completed our wallet should know of all its transactions and print the correct balance.
-        peers.start();
-        peers.startBlockChainDownload(bListener);
+        peerGroup.start();
+        peerGroup.startBlockChainDownload(bListener);
 
         bListener.await();
 
@@ -82,6 +85,6 @@ public class RestoreFromSeed {
         System.out.println(wallet.toString());
 
         // shutting down again
-        peers.stop();
+        peerGroup.stop();
     }
 }

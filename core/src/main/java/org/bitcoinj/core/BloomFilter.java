@@ -149,7 +149,7 @@ public class BloomFilter extends Message {
      * Serializes this message to the provided stream. If you just want the raw bytes use bitcoinSerialize().
      */
     @Override
-    void bitcoinSerializeToStream(OutputStream stream) throws IOException {
+    protected void bitcoinSerializeToStream(OutputStream stream) throws IOException {
         stream.write(new VarInt(data.length).encode());
         stream.write(data);
         Utils.uint32ToByteStreamLE(hashFuncs, stream);
@@ -163,7 +163,7 @@ public class BloomFilter extends Message {
 
     /**
      * Applies the MurmurHash3 (x86_32) algorithm to the given data.
-     * See this <a href="http://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp">C++ code for the original.</a>
+     * See this <a href="https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp">C++ code for the original.</a>
      */
     public static int murmurHash3(byte[] data, long nTweak, int hashNum, byte[] object) {
         int h1 = (int)(hashNum * 0xFBA4C795L + nTweak);
@@ -301,7 +301,7 @@ public class BloomFilter extends Message {
      */
     public synchronized FilteredBlock applyAndUpdate(Block block) {
         List<Transaction> txns = block.getTransactions();
-        List<Sha256Hash> txHashes = new ArrayList<Sha256Hash>(txns.size());
+        List<Sha256Hash> txHashes = new ArrayList<>(txns.size());
         List<Transaction> matched = Lists.newArrayList();
         byte[] bits = new byte[(int) Math.ceil(txns.size() / 8.0)];
         for (int i = 0; i < txns.size(); i++) {

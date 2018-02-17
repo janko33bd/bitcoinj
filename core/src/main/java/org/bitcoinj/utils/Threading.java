@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,10 +50,8 @@ public class Threading {
     public static Executor USER_THREAD;
 
     /**
-     * A dummy executor that just invokes the runnable immediately. Use this over
-     * {@link com.google.common.util.concurrent.MoreExecutors#sameThreadExecutor()} because the latter creates a new
-     * object each time in order to implement the more complex {@link ExecutorService} interface, which is overkill
-     * for our needs.
+     * A dummy executor that just invokes the runnable immediately. Use this over more complex executors
+     * (e.g. those extending {@link ExecutorService}), which are overkill for our needs.
      */
     public static final Executor SAME_THREAD;
 
@@ -95,7 +93,7 @@ public class Threading {
         public UserThread() {
             super("bitcoinj user thread");
             setDaemon(true);
-            tasks = new LinkedBlockingQueue<Runnable>();
+            tasks = new LinkedBlockingQueue<>();
             start();
         }
 

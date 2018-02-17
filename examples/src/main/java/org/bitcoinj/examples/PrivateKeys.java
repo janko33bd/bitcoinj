@@ -20,6 +20,7 @@ package org.bitcoinj.examples;
 import org.bitcoinj.core.*;
 import org.bitcoinj.params.MainNetParams;
 import org.bitcoinj.store.MemoryBlockStore;
+import org.bitcoinj.wallet.Wallet;
 
 import java.math.BigInteger;
 import java.net.InetAddress;
@@ -62,7 +63,7 @@ public class PrivateKeys {
             BlockChain chain = new BlockChain(params, wallet, blockStore);
 
             final PeerGroup peerGroup = new PeerGroup(params, chain);
-            peerGroup.addAddress(new PeerAddress(InetAddress.getLocalHost()));
+            peerGroup.addAddress(new PeerAddress(params, InetAddress.getLocalHost()));
             peerGroup.startAsync();
             peerGroup.downloadBlockChain();
             peerGroup.stopAsync();

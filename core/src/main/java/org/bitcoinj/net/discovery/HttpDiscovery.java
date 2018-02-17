@@ -1,5 +1,6 @@
-/**
+/*
  * Copyright 2014 Mike Hearn
+ * Copyright 2015 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.bitcoinj.net.discovery;
 
 import com.google.common.annotations.*;
 import com.google.protobuf.*;
-import com.squareup.okhttp.*;
 import org.bitcoin.crawler.*;
 import org.bitcoinj.core.*;
 import org.slf4j.*;
@@ -29,6 +30,11 @@ import java.security.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.*;
+
+import okhttp3.HttpUrl;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 import static com.google.common.base.Preconditions.*;
 
@@ -78,16 +84,27 @@ public class HttpDiscovery implements PeerDiscovery {
     }
 
     @Override
-    public InetSocketAddress[] getPeers(long timeoutValue, TimeUnit timeoutUnit) throws PeerDiscoveryException {
+    public InetSocketAddress[] getPeers(long services, long timeoutValue, TimeUnit timeoutUnit) throws PeerDiscoveryException {
         try {
-            log.info("Requesting seeds from {}", details.uri);
-            Response response = client.newCall(new Request.Builder().url(details.uri.toURL()).build()).execute();
+            HttpUrl.Builder url = HttpUrl.get(details.uri).newBuilder();
+            if (services != 0)
+                url.addQueryParameter("srvmask", Long.toString(services));
+            Request.Builder request = new Request.Builder();
+            request.url(url.build());
+            request.addHeader("User-Agent", VersionMessage.LIBRARY_SUBVER); // TODO Add main version.
+            log.info("Requesting seeds from {}", url);
+            Response response = client.newCall(request.build()).execute();
             if (!response.isSuccessful())
                 throw new PeerDiscoveryException("HTTP request failed: " + response.code() + " " + response.message());
             InputStream stream = response.body().byteStream();
             GZIPInputStream zip = new GZIPInputStream(stream);
-            PeerSeedProtos.SignedPeerSeeds proto = PeerSeedProtos.SignedPeerSeeds.parseDelimitedFrom(zip);
-            stream.close();
+            PeerSeedProtos.SignedPeerSeeds proto;
+            try {
+                proto = PeerSeedProtos.SignedPeerSeeds.parseDelimitedFrom(zip);
+            } finally {
+                zip.close(); // will close InputStream as well
+            }
+
             return protoToAddrs(proto);
         } catch (PeerDiscoveryException e1) {
             throw e1;

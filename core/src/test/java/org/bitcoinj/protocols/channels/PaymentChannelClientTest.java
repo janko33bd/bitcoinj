@@ -1,6 +1,24 @@
+/*
+ * Copyright by the original author or authors.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.bitcoinj.protocols.channels;
 
 import org.bitcoinj.core.*;
+import org.bitcoinj.wallet.Wallet;
+import org.bitcoinj.wallet.WalletExtension;
 import org.bitcoin.paymentchannel.Protos;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
@@ -16,6 +34,9 @@ import java.util.HashMap;
 
 import static org.bitcoin.paymentchannel.Protos.TwoWayChannelMessage;
 import static org.bitcoin.paymentchannel.Protos.TwoWayChannelMessage.MessageType.*;
+import static org.bitcoinj.protocols.channels.PaymentChannelClient.VersionSelector.VERSION_1;
+import static org.bitcoinj.protocols.channels.PaymentChannelClient.VersionSelector.VERSION_2;
+import static org.bitcoinj.protocols.channels.PaymentChannelClient.VersionSelector.VERSION_2_ALLOW_1;
 import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.replay;
@@ -37,16 +58,25 @@ public class PaymentChannelClientTest {
      * version of the channel.
      */
     @Parameterized.Parameters(name = "{index}: PaymentChannelClientTest({0})")
-    public static Collection<PaymentChannelClient.VersionSelector> data() {
+    public static Collection<PaymentChannelClient.DefaultClientChannelProperties> data() {
         return Arrays.asList(
-                PaymentChannelClient.VersionSelector.VERSION_1,
-                PaymentChannelClient.VersionSelector.VERSION_2_ALLOW_1,
-                PaymentChannelClient.VersionSelector.VERSION_2
+                new PaymentChannelClient.DefaultClientChannelProperties() {
+                    @Override
+                    public PaymentChannelClient.VersionSelector versionSelector() { return VERSION_1;}
+                },
+                new PaymentChannelClient.DefaultClientChannelProperties() {
+                    @Override
+                    public PaymentChannelClient.VersionSelector versionSelector() { return VERSION_2_ALLOW_1;}
+                },
+                new PaymentChannelClient.DefaultClientChannelProperties() {
+                    @Override
+                    public PaymentChannelClient.VersionSelector versionSelector() { return VERSION_2;}
+                }
         );
     }
 
     @Parameterized.Parameter
-    public PaymentChannelClient.VersionSelector versionSelector;
+    public IPaymentChannelClient.ClientChannelProperties clientChannelProperties;
 
     @Before
     public void before() {
@@ -55,12 +85,12 @@ public class PaymentChannelClientTest {
         maxValue = Coin.COIN;
         serverHash = Sha256Hash.of("serverId".getBytes());
         connection = createMock(IPaymentChannelClient.ClientConnection.class);
-        clientVersionCapture = new Capture<TwoWayChannelMessage>();
+        clientVersionCapture = new Capture<>();
     }
 
     @Test
     public void shouldSendClientVersionOnChannelOpen() throws Exception {
-        PaymentChannelClient dut = new PaymentChannelClient(wallet, ecKey, maxValue, serverHash, connection, versionSelector);
+        PaymentChannelClient dut = new PaymentChannelClient(wallet, ecKey, maxValue, serverHash, null, clientChannelProperties, connection);
         connection.sendToServer(capture(clientVersionCapture));
         EasyMock.expect(wallet.getExtensions()).andReturn(new HashMap<String, WalletExtension>());
         replay(connection, wallet);
@@ -69,10 +99,20 @@ public class PaymentChannelClientTest {
     }
     @Test
     public void shouldSendTimeWindowInClientVersion() throws Exception {
-        long timeWindow = 4000;
+        final long timeWindow = 4000;
         KeyParameter userKey = null;
         PaymentChannelClient dut =
-                new PaymentChannelClient(wallet, ecKey, maxValue, serverHash, timeWindow, userKey, connection, versionSelector);
+                new PaymentChannelClient(wallet, ecKey, maxValue, serverHash, userKey, new PaymentChannelClient.DefaultClientChannelProperties() {
+                    @Override
+                    public long timeWindow() {
+                        return timeWindow;
+                    }
+
+                    @Override
+                    public PaymentChannelClient.VersionSelector versionSelector() {
+                        return clientChannelProperties.versionSelector();
+                    }
+                }, connection);
         connection.sendToServer(capture(clientVersionCapture));
         EasyMock.expect(wallet.getExtensions()).andReturn(new HashMap<String, WalletExtension>());
         replay(connection, wallet);
@@ -86,7 +126,7 @@ public class PaymentChannelClientTest {
         assertEquals("Wrong type " + type, CLIENT_VERSION, type);
         final Protos.ClientVersion clientVersion = response.getClientVersion();
         final int major = clientVersion.getMajor();
-        final int requestedVersion = versionSelector.getRequestedMajorVersion();
+        final int requestedVersion = clientChannelProperties.versionSelector().getRequestedMajorVersion();
         assertEquals("Wrong major version " + major, requestedVersion, major);
         final long actualTimeWindow = clientVersion.getTimeWindowSecs();
         assertEquals("Wrong timeWindow " + actualTimeWindow, expectedTimeWindow, actualTimeWindow );

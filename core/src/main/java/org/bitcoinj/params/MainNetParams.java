@@ -28,6 +28,10 @@ import static com.google.common.base.Preconditions.*;
  * Parameters for the main production network on which people trade goods and services.
  */
 public class MainNetParams extends AbstractBitcoinNetParams {
+    public static final int MAINNET_MAJORITY_WINDOW = 1000;
+    public static final int MAINNET_MAJORITY_REJECT_BLOCK_OUTDATED = 950;
+    public static final int MAINNET_MAJORITY_ENFORCE_BLOCK_UPGRADE = 750;
+
     public MainNetParams() {
         super();
         interval = INTERVAL;
@@ -41,6 +45,10 @@ public class MainNetParams extends AbstractBitcoinNetParams {
         packetMagic = 0xf9beb4d9L;
         bip32HeaderPub = 0x0488B21E; //The 4 byte header that serializes in base58 to "xpub".
         bip32HeaderPriv = 0x0488ADE4; //The 4 byte header that serializes in base58 to "xprv"
+
+        majorityEnforceBlockUpgrade = MAINNET_MAJORITY_ENFORCE_BLOCK_UPGRADE;
+        majorityRejectBlockOutdated = MAINNET_MAJORITY_REJECT_BLOCK_OUTDATED;
+        majorityWindow = MAINNET_MAJORITY_WINDOW;
 
         genesisBlock.setDifficultyTarget(0x1d00ffffL);
         genesisBlock.setTime(1231006505L);
@@ -63,18 +71,17 @@ public class MainNetParams extends AbstractBitcoinNetParams {
         checkpoints.put(200000, Sha256Hash.wrap("000000000000034a7dedef4a161fa058a2d67a173a90155f3a2fe6fc132e0ebf"));
 
         dnsSeeds = new String[] {
-                "seed.bitcoin.sipa.be",        // Pieter Wuille
-                "dnsseed.bluematt.me",         // Matt Corallo
-                "dnsseed.bitcoin.dashjr.org",  // Luke Dashjr
-                "seed.bitcoinstats.com",       // Chris Decker
-                "seed.bitnodes.io",            // Addy Yeow
+                "seed.bitcoin.sipa.be",         // Pieter Wuille
+                "dnsseed.bluematt.me",          // Matt Corallo
+                "dnsseed.bitcoin.dashjr.org",   // Luke Dashjr
+                "seed.bitcoinstats.com",        // Chris Decker
+                "seed.bitnodes.io",             // Addy Yeow
+                "bitseed.xf2.org",              // Jeff Garzik
+                "seed.bitcoin.jonasschnelli.ch",// Jonas Schnelli
+                "bitcoin.bloqseeds.net",        // Bloq
+                "seed.ob1.io",                  // OpenBazaar
         };
         httpSeeds = new HttpDiscovery.Details[] {
-                // Mike Hearn
-                new HttpDiscovery.Details(
-                        ECKey.fromPublicOnly(Utils.HEX.decode("027a79143a4de36341494d21b6593015af6b2500e720ad2eda1c0b78165f4f38c4")),
-                        URI.create("http://main.seed.vinumeris.com/peers")
-                ),
                 // Andreas Schildbach
                 new HttpDiscovery.Details(
                         ECKey.fromPublicOnly(Utils.HEX.decode("0238746c59d46d5408bf8b1d0af5740fe1a6e1703fcb56b2953f0b965c740d256f")),

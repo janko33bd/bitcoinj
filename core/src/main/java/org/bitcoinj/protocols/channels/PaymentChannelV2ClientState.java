@@ -17,22 +17,22 @@
 package org.bitcoinj.protocols.channels;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import org.bitcoinj.core.*;
 import org.bitcoinj.crypto.TransactionSignature;
+import org.bitcoinj.protocols.channels.IPaymentChannelClient.ClientChannelProperties;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
 import org.bitcoinj.wallet.AllowUnconfirmedCoinSelector;
+import org.bitcoinj.wallet.SendRequest;
+import org.bitcoinj.wallet.Wallet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongycastle.crypto.params.KeyParameter;
 
 import javax.annotation.Nullable;
 import java.math.BigInteger;
-import java.util.List;
-
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -100,7 +100,7 @@ public class PaymentChannelV2ClientState extends PaymentChannelClientState {
     }
 
     @Override
-    public synchronized void initiate(@Nullable KeyParameter userKey) throws ValueOutOfRangeException, InsufficientMoneyException {
+    public synchronized void initiate(@Nullable KeyParameter userKey, ClientChannelProperties clientChannelProperties) throws ValueOutOfRangeException, InsufficientMoneyException {
         final NetworkParameters params = wallet.getParams();
         Transaction template = new Transaction(params);
         // There is also probably a change output, but we don't bother shuffling them as it's obvious from the
@@ -112,25 +112,24 @@ public class PaymentChannelV2ClientState extends PaymentChannelClientState {
                 ScriptBuilder.createP2SHOutputScript(redeemScript));
         if (transactionOutput.isDust())
             throw new ValueOutOfRangeException("totalValue too small to use");
-        Wallet.SendRequest req = Wallet.SendRequest.forTx(template);
+        SendRequest req = SendRequest.forTx(template);
         req.coinSelector = AllowUnconfirmedCoinSelector.get();
-        editContractSendRequest(req);
         req.shuffleOutputs = false;   // TODO: Fix things so shuffling is usable.
-        req.aesKey = userKey;
+        req = clientChannelProperties.modifyContractSendRequest(req);
+        if (userKey != null) req.aesKey = userKey;
         wallet.completeTx(req);
         Coin multisigFee = req.tx.getFee();
         contract = req.tx;
 
         // Build a refund transaction that protects us in the case of a bad server that's just trying to cause havoc
-        // by locking up peoples money (perhaps as a precursor to a ransom attempt). We time lock it so the server
-        // has an assurance that we cannot take back our money by claiming a refund before the channel closes - this
-        // relies on the fact that since Bitcoin 0.8 time locked transactions are non-final. This will need to change
-        // in future as it breaks the intended design of timelocking/tx replacement, but for now it simplifies this
-        // specific protocol somewhat.
+        // by locking up peoples money (perhaps as a precursor to a ransom attempt). We time lock it because the
+        // CheckLockTimeVerify opcode requires a lock time to be specified and the input to have a non-final sequence
+        // number (so that the lock time is not disabled).
         refundTx = new Transaction(params);
-        refundTx.addInput(contract.getOutput(0)).setSequenceNumber(0);   // Allow replacement when it's eventually reactivated.
+        // by using this sequence value, we avoid extra full replace-by-fee and relative lock time processing.
+        refundTx.addInput(contract.getOutput(0)).setSequenceNumber(TransactionInput.NO_SEQUENCE - 1L);
         refundTx.setLockTime(expiryTime);
-        if (totalValue.compareTo(Coin.CENT) < 0) {
+        if (Context.get().isEnsureMinRequiredFee()) {
             // Must pay min fee.
             final Coin valueAfterFee = totalValue.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE);
             if (Transaction.MIN_NONDUST_OUTPUT.compareTo(valueAfterFee) > 0)

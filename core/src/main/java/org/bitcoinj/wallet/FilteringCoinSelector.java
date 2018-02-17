@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 the bitcoinj authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 package org.bitcoinj.wallet;
 
 import org.bitcoinj.core.*;
@@ -28,7 +27,7 @@ import java.util.List;
  */
 public class FilteringCoinSelector implements CoinSelector {
     protected CoinSelector delegate;
-    protected HashSet<TransactionOutPoint> spent = new HashSet<TransactionOutPoint>();
+    protected HashSet<TransactionOutPoint> spent = new HashSet<>();
 
     public FilteringCoinSelector(CoinSelector delegate) {
         this.delegate = delegate;

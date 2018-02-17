@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,8 @@ package org.bitcoinj.testing;
 
 import org.bitcoinj.core.*;
 import org.bitcoinj.utils.Threading;
+import org.bitcoinj.wallet.Wallet;
+
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
@@ -50,7 +52,7 @@ public class MockTransactionBroadcaster implements TransactionBroadcaster {
         }
     }
 
-    private final LinkedBlockingQueue<TxFuturePair> broadcasts = new LinkedBlockingQueue<TxFuturePair>();
+    private final LinkedBlockingQueue<TxFuturePair> broadcasts = new LinkedBlockingQueue<>();
 
     /** Sets this mock broadcaster on the given wallet. */
     public MockTransactionBroadcaster(Wallet wallet) {

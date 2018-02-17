@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.bitcoinj.core;
 
 import javax.annotation.Nullable;
@@ -28,7 +29,7 @@ public abstract class ChildMessage extends Message {
     @Nullable protected Message parent;
 
     /**
-     * @deprecated Use {@link #ChildMessage(NetworkParameters) instead.
+     * @deprecated Use {@link #ChildMessage(NetworkParameters)} instead.
      */
     @Deprecated
     protected ChildMessage() {

@@ -1,6 +1,6 @@
-/**
- * Copyright 2013 The bitcoinj developers.
- *
+/*
+ * Copyright by the original author or authors.
+ * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -28,11 +28,11 @@ import org.bitcoinj.crypto.DeterministicKey;
 import org.bitcoinj.crypto.KeyCrypter;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.script.ScriptBuilder;
+import org.spongycastle.crypto.params.KeyParameter;
 
 import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -58,7 +58,7 @@ import static com.google.common.collect.Lists.newArrayList;
 public class MarriedKeyChain extends DeterministicKeyChain {
     // The map holds P2SH redeem script and corresponding ECKeys issued by this KeyChainGroup (including lookahead)
     // mapped to redeem script hashes.
-    private LinkedHashMap<ByteString, RedeemData> marriedKeysRedeemData = new LinkedHashMap<ByteString, RedeemData>();
+    private LinkedHashMap<ByteString, RedeemData> marriedKeysRedeemData = new LinkedHashMap<>();
 
     private List<DeterministicKeyChain> followingKeyChains;
 
@@ -103,9 +103,11 @@ public class MarriedKeyChain extends DeterministicKeyChain {
             } else if (entropy != null) {
                 chain = new MarriedKeyChain(entropy, getPassphrase(), seedCreationTimeSecs);
             } else if (seed != null) {
+                seed.setCreationTimeSeconds(seedCreationTimeSecs);
                 chain = new MarriedKeyChain(seed);
             } else {
-                chain = new MarriedKeyChain(watchingKey, seedCreationTimeSecs);
+                watchingKey.setCreationTimeSeconds(seedCreationTimeSecs);
+                chain = new MarriedKeyChain(watchingKey);
             }
             chain.addFollowingAccountKeys(followingKeys, threshold);
             return chain;
@@ -119,10 +121,6 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     // Protobuf deserialization constructors
     MarriedKeyChain(DeterministicKey accountKey) {
         super(accountKey, false);
-    }
-
-    MarriedKeyChain(DeterministicKey accountKey, long seedCreationTimeSecs) {
-        super(accountKey, seedCreationTimeSecs);
     }
 
     MarriedKeyChain(DeterministicSeed seed, KeyCrypter crypter) {
@@ -180,7 +178,6 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     /** Get the redeem data for a key in this married chain */
     @Override
     public RedeemData getRedeemData(DeterministicKey followedKey) {
-        checkState(isMarried());
         List<ECKey> marriedKeys = getMarriedKeysWithFollowed(followedKey);
         Script redeemScript = ScriptBuilder.createRedeemScript(sigsRequiredToSpend, marriedKeys);
         return RedeemData.of(marriedKeys, redeemScript);
@@ -238,11 +235,12 @@ public class MarriedKeyChain extends DeterministicKeyChain {
     }
 
     @Override
-    protected void formatAddresses(boolean includePrivateKeys, NetworkParameters params, StringBuilder builder2) {
-        for (DeterministicKeyChain followingChain : followingKeyChains) {
-            builder2.append(String.format(Locale.US, "Following chain:  %s%n", followingChain.getWatchingKey().serializePubB58(params)));
-        }
-        builder2.append(String.format(Locale.US, "%n"));
+    protected void formatAddresses(boolean includePrivateKeys, @Nullable KeyParameter aesKey, NetworkParameters params,
+            StringBuilder builder2) {
+        for (DeterministicKeyChain followingChain : followingKeyChains)
+            builder2.append("Following chain:  ").append(followingChain.getWatchingKey().serializePubB58(params))
+                    .append('\n');
+        builder2.append('\n');
         for (RedeemData redeemData : marriedKeysRedeemData.values())
             formatScript(ScriptBuilder.createP2SHOutputScript(redeemData.redeemScript), builder2, params);
     }
@@ -254,7 +252,7 @@ public class MarriedKeyChain extends DeterministicKeyChain {
         builder.append(Utils.HEX.encode(script.getPubKeyHash()));
         if (script.getCreationTimeSeconds() > 0)
             builder.append("  creationTimeSeconds:").append(script.getCreationTimeSeconds());
-        builder.append("\n");
+        builder.append('\n');
     }
 
     @Override

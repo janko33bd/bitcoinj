@@ -1,12 +1,12 @@
-/**
+/*
  * Copyright 2012 Matt Corallo.
- * <p/>
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * <p/>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p/>
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@
 package org.bitcoinj.core;
 
 import org.bitcoinj.script.*;
+import com.google.common.base.Objects;
 
 import java.io.*;
 import java.math.*;
@@ -30,7 +31,8 @@ import java.util.Locale;
  * Useful when working with free standing outputs.
  */
 public class UTXO implements Serializable {
-    private static final long serialVersionUID = -8744924157056340509L;
+
+    private static final long serialVersionUID = 4736241649298988166L;
 
     private Coin value;
     private Script script;
@@ -86,38 +88,7 @@ public class UTXO implements Serializable {
     }
 
     public UTXO(InputStream in) throws IOException {
-        byte[] valueBytes = new byte[8];
-        if (in.read(valueBytes, 0, 8) != 8)
-            throw new EOFException();
-        value = Coin.valueOf(Utils.readInt64(valueBytes, 0));
-
-        int scriptBytesLength = ((in.read() & 0xFF)) |
-                ((in.read() & 0xFF) << 8) |
-                ((in.read() & 0xFF) << 16) |
-                ((in.read() & 0xFF) << 24);
-        byte[] scriptBytes = new byte[scriptBytesLength];
-        if (in.read(scriptBytes) != scriptBytesLength)
-            throw new EOFException();
-        script = new Script(scriptBytes);
-
-        byte[] hashBytes = new byte[32];
-        if (in.read(hashBytes) != 32)
-            throw new EOFException();
-        hash = Sha256Hash.wrap(hashBytes);
-
-        byte[] indexBytes = new byte[4];
-        if (in.read(indexBytes) != 4)
-            throw new EOFException();
-        index = Utils.readUint32(indexBytes, 0);
-
-        height = ((in.read() & 0xFF)) |
-                ((in.read() & 0xFF) << 8) |
-                ((in.read() & 0xFF) << 16) |
-                ((in.read() & 0xFF) << 24);
-
-        byte[] coinbaseByte = new byte[1];
-        in.read(coinbaseByte);
-        coinbase = coinbaseByte[0] == 1;
+        deserializeFromStream(in);
     }
 
     /** The value which this Transaction output holds. */
@@ -162,7 +133,7 @@ public class UTXO implements Serializable {
 
     @Override
     public int hashCode() {
-        return hash.hashCode() + (int) index;
+        return Objects.hashCode(getIndex(), getHash());
     }
 
     @Override
@@ -170,8 +141,7 @@ public class UTXO implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UTXO other = (UTXO) o;
-        return getHash().equals(other.getHash()) &&
-                getIndex() == other.getIndex();
+        return getIndex() == other.getIndex() && getHash().equals(other.getHash());
     }
 
     public void serializeToStream(OutputStream bos) throws IOException {
@@ -194,4 +164,48 @@ public class UTXO implements Serializable {
 
         bos.write(new byte[] { (byte)(coinbase ? 1 : 0) });
     }
+    
+    public void deserializeFromStream(InputStream in) throws IOException {
+        byte[] valueBytes = new byte[8];
+        if (in.read(valueBytes, 0, 8) != 8)
+            throw new EOFException();
+        value = Coin.valueOf(Utils.readInt64(valueBytes, 0));
+
+        int scriptBytesLength = ((in.read() & 0xFF)) |
+                ((in.read() & 0xFF) << 8) |
+                ((in.read() & 0xFF) << 16) |
+                ((in.read() & 0xFF) << 24);
+        byte[] scriptBytes = new byte[scriptBytesLength];
+        if (in.read(scriptBytes) != scriptBytesLength)
+            throw new EOFException();
+        script = new Script(scriptBytes);
+
+        byte[] hashBytes = new byte[32];
+        if (in.read(hashBytes) != 32)
+            throw new EOFException();
+        hash = Sha256Hash.wrap(hashBytes);
+
+        byte[] indexBytes = new byte[4];
+        if (in.read(indexBytes) != 4)
+            throw new EOFException();
+        index = Utils.readUint32(indexBytes, 0);
+
+        height = ((in.read() & 0xFF)) |
+                ((in.read() & 0xFF) << 8) |
+                ((in.read() & 0xFF) << 16) |
+                ((in.read() & 0xFF) << 24);
+
+        byte[] coinbaseByte = new byte[1];
+        in.read(coinbaseByte);
+        coinbase = coinbaseByte[0] == 1;
+    }
+    
+    
+    private void writeObject(ObjectOutputStream o) throws IOException {
+        serializeToStream(o);
+    }
+          
+    private void readObject(ObjectInputStream o) throws IOException, ClassNotFoundException {
+        deserializeFromStream(o);
+    }        
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,23 @@ public class FiatTest {
         assertEquals(Fiat.valueOf("EUR", 100), parseFiat("EUR", "0.01"));
         assertEquals(Fiat.valueOf("EUR", 1), parseFiat("EUR", "0.0001"));
         assertEquals(Fiat.valueOf("EUR", -10000), parseFiat("EUR", "-1"));
+    }
+
+    @Test
+    public void testParseFiat() {
+        assertEquals(1, Fiat.parseFiat("EUR", "0.0001").value);
+        assertEquals(1, Fiat.parseFiat("EUR", "0.00010").value);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testParseFiatOverprecise() {
+        Fiat.parseFiat("EUR", "0.00011");
+    }
+
+    @Test
+    public void testParseFiatInexact() {
+        assertEquals(1, Fiat.parseFiatInexact("EUR", "0.0001").value);
+        assertEquals(1, Fiat.parseFiatInexact("EUR", "0.00011").value);
     }
 
     @Test

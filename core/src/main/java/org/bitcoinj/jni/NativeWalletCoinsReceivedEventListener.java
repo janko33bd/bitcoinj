@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,10 +16,10 @@
 
 package org.bitcoinj.jni;
 
-import org.bitcoinj.core.listeners.WalletCoinsReceivedEventListener;
+import org.bitcoinj.wallet.Wallet;
+import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.Transaction;
-import org.bitcoinj.core.Wallet;
 
 /**
  * An event listener that relays events to a native C++ object. A pointer to that object is stored in
