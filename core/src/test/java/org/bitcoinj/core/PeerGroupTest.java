@@ -857,11 +857,11 @@ public class PeerGroupTest extends TestWithPeerGroup {
     }
 
     private void filterAndSend(InboundMessageQueuer p1, List<Block> blocks, BloomFilter filter) {
-        for (Block block : blocks) {
-            FilteredBlock fb = filter.applyAndUpdate(block);
-            inbound(p1, fb);
-            for (Transaction tx : fb.getAssociatedTransactions().values())
-                inbound(p1, tx);
-        }
+//        for (Block block : blocks) {
+//            FilteredBlock fb = filter.applyAndUpdate(block);
+//            inbound(p1, fb);
+//            for (Transaction tx : fb.getAssociatedTransactions().values())
+//                inbound(p1, tx);
+//        }
     }
 }

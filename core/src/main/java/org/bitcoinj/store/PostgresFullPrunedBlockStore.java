@@ -258,4 +258,22 @@ public class PostgresFullPrunedBlockStore extends DatabaseFullPrunedBlockStore {
         }
 
     }
+
+	@Override
+	public void setTheLast(Sha256Hash lastThird) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void putCheckPointed(StoredBlock block) throws BlockStoreException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void compact() {
+		// TODO Auto-generated method stub
+		
+	}
 }

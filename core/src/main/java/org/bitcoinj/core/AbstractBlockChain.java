@@ -32,6 +32,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.locks.*;
 
 import static com.google.common.base.Preconditions.*;
+import org.blackcoinj.pos.BlackStakeModifier;
 
 /**
  * <p>An AbstractBlockChain holds a series of {@link Block} objects, links them together, and knows how to verify that
@@ -133,6 +134,8 @@ public abstract class AbstractBlockChain {
     private double previousFalsePositiveRate;
 
     private final VersionTally versionTally;
+    
+    private BlackStakeModifier blackStake;
 
     /** See {@link #AbstractBlockChain(Context, List, BlockStore)} */
     public AbstractBlockChain(NetworkParameters params, List<? extends Wallet> transactionReceivedListeners,
@@ -146,6 +149,7 @@ public abstract class AbstractBlockChain {
     public AbstractBlockChain(Context context, List<? extends Wallet> wallets,
                               BlockStore blockStore) throws BlockStoreException {
         this.blockStore = blockStore;
+        this.blackStake = new BlackStakeModifier();
         chainHead = blockStore.getChainHead();
         log.info("chain head is at height {}:\n{}", chainHead.getHeight(), chainHead.getHeader());
         this.params = context.getParams();
@@ -368,7 +372,7 @@ public abstract class AbstractBlockChain {
      * Processes a received block and tries to add it to the chain. If there's something wrong with the block an
      * exception is thrown. If the block is OK but cannot be connected to the chain at this time, returns false.
      * If the block can be connected to the chain, returns true.
-     */
+     
     public boolean add(FilteredBlock block) throws VerificationException, PrunedException {
         try {
             // The block has a list of hashes of transactions that matched the Bloom filter, and a list of associated
@@ -391,7 +395,7 @@ public abstract class AbstractBlockChain {
             throw new VerificationException("Could not verify block " + block.getHash().toString() + "\n" +
                     block.toString(), e);
         }
-    }
+    } */
     
     /**
      * Whether or not we are maintaining a set of unspent outputs and are verifying all transactions.
@@ -486,6 +490,8 @@ public abstract class AbstractBlockChain {
                 checkState(lock.isHeldByCurrentThread());
                 // It connects to somewhere on the chain. Not necessarily the top of the best known chain.
                 params.checkDifficultyTransitions(storedPrev, block, blockStore);
+                //TODO consider moving to params.
+                setCheckBlackCoinStake(storedPrev, block);
                 connectBlock(block, storedPrev, shouldVerifyTransactions(), filteredTxHashList, filteredTxn);
             }
 
@@ -497,6 +503,22 @@ public abstract class AbstractBlockChain {
             lock.unlock();
         }
     }
+    
+    private void setCheckBlackCoinStake(StoredBlock storedPrev, Block newBlock) throws BlockStoreException{
+    	if(newBlock.getPrevBlockHash().equals(storedPrev.getHeader().getHash())){
+			this.blackStake.setBlackCoinStake(storedPrev, newBlock);
+			Sha256Hash stakeHashProof = checkAndSetPOS(storedPrev, newBlock);
+			newBlock.setStakeHashProof(stakeHashProof);
+		}
+		
+	}
+
+	/**
+     * This method has to be overridden in FullPrunedBlockChain cause we need transactions to verify POS.
+     */
+    protected Sha256Hash checkAndSetPOS(StoredBlock storedPrev, Block block) throws BlockStoreException {
+		throw new RuntimeException("forgot to override method AbstractBlockChain.checkAndSetPOS");
+	}
 
     /**
      * Returns the hashes of the currently stored orphan blocks and then deletes them from this objects storage.
@@ -748,11 +770,17 @@ public abstract class AbstractBlockChain {
         // Firstly, calculate the block at which the chain diverged. We only need to examine the
         // chain from beyond this block to find differences.
         StoredBlock head = getChainHead();
-        final StoredBlock splitPoint = findSplit(newChainHead, head, blockStore);
-        log.info("Re-organize after split at height {}", splitPoint.getHeight());
+        StoredBlock foundCrack = findSplit(newChainHead, head, blockStore);
+        final StoredBlock splitPoint; 
+        log.info("Re-organize after split at height {}", foundCrack.getHeight());
         log.info("Old chain head: {}", head.getHeader().getHashAsString());
         log.info("New chain head: {}", newChainHead.getHeader().getHashAsString());
-        log.info("Split at block: {}", splitPoint.getHeader().getHashAsString());
+        log.info("Split at block: {}", foundCrack.getHeader().getHashAsString());
+        //in blackcoin it happens that split and head is the same
+        if (head.getHeight() == foundCrack.getHeight())
+        	splitPoint = foundCrack.getPrev(blockStore);
+        else
+        	splitPoint = foundCrack;
         // Then build a list of all blocks in the old part of the chain and the new part.
         final LinkedList<StoredBlock> oldBlocks = getPartialChain(head, splitPoint, blockStore);
         final LinkedList<StoredBlock> newBlocks = getPartialChain(newChainHead, splitPoint, blockStore);

@@ -8394,6 +8394,23 @@ public final class Protos {
      */
     com.google.protobuf.ByteString
         getMemoBytes();
+
+    /**
+     * <code>required uint32 n_time = 14;</code>
+     *
+     * <pre>
+     * Next tag: 15
+     * </pre>
+     */
+    boolean hasNTime();
+    /**
+     * <code>required uint32 n_time = 14;</code>
+     *
+     * <pre>
+     * Next tag: 15
+     * </pre>
+     */
+    int getNTime();
   }
   /**
    * Protobuf type {@code wallet.Transaction}
@@ -8564,6 +8581,11 @@ public final class Protos {
               com.google.protobuf.ByteString bs = input.readBytes();
               bitField0_ |= 0x00000100;
               memo_ = bs;
+              break;
+            }
+            case 112: {
+              bitField0_ |= 0x00000200;
+              nTime_ = input.readUInt32();
               break;
             }
           }
@@ -9348,6 +9370,29 @@ public final class Protos {
       }
     }
 
+    public static final int N_TIME_FIELD_NUMBER = 14;
+    private int nTime_;
+    /**
+     * <code>required uint32 n_time = 14;</code>
+     *
+     * <pre>
+     * Next tag: 15
+     * </pre>
+     */
+    public boolean hasNTime() {
+      return ((bitField0_ & 0x00000200) == 0x00000200);
+    }
+    /**
+     * <code>required uint32 n_time = 14;</code>
+     *
+     * <pre>
+     * Next tag: 15
+     * </pre>
+     */
+    public int getNTime() {
+      return nTime_;
+    }
+
     private void initFields() {
       version_ = 0;
       hash_ = com.google.protobuf.ByteString.EMPTY;
@@ -9362,6 +9407,7 @@ public final class Protos {
       purpose_ = org.bitcoinj.wallet.Protos.Transaction.Purpose.UNKNOWN;
       exchangeRate_ = org.bitcoinj.wallet.Protos.ExchangeRate.getDefaultInstance();
       memo_ = "";
+      nTime_ = 0;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -9374,6 +9420,10 @@ public final class Protos {
         return false;
       }
       if (!hasHash()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      if (!hasNTime()) {
         memoizedIsInitialized = 0;
         return false;
       }
@@ -9447,6 +9497,9 @@ public final class Protos {
       if (((bitField0_ & 0x00000100) == 0x00000100)) {
         output.writeBytes(13, getMemoBytes());
       }
+      if (((bitField0_ & 0x00000200) == 0x00000200)) {
+        output.writeUInt32(14, nTime_);
+      }
       getUnknownFields().writeTo(output);
     }
 
@@ -9517,6 +9570,10 @@ public final class Protos {
       if (((bitField0_ & 0x00000100) == 0x00000100)) {
         size += com.google.protobuf.CodedOutputStream
           .computeBytesSize(13, getMemoBytes());
+      }
+      if (((bitField0_ & 0x00000200) == 0x00000200)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(14, nTime_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -9681,6 +9738,8 @@ public final class Protos {
         bitField0_ = (bitField0_ & ~0x00000800);
         memo_ = "";
         bitField0_ = (bitField0_ & ~0x00001000);
+        nTime_ = 0;
+        bitField0_ = (bitField0_ & ~0x00002000);
         return this;
       }
 
@@ -9781,6 +9840,10 @@ public final class Protos {
           to_bitField0_ |= 0x00000100;
         }
         result.memo_ = memo_;
+        if (((from_bitField0_ & 0x00002000) == 0x00002000)) {
+          to_bitField0_ |= 0x00000200;
+        }
+        result.nTime_ = nTime_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -9898,6 +9961,9 @@ public final class Protos {
           memo_ = other.memo_;
           onChanged();
         }
+        if (other.hasNTime()) {
+          setNTime(other.getNTime());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
       }
@@ -9908,6 +9974,10 @@ public final class Protos {
           return false;
         }
         if (!hasHash()) {
+          
+          return false;
+        }
+        if (!hasNTime()) {
           
           return false;
         }
@@ -11293,6 +11363,54 @@ public final class Protos {
   }
   bitField0_ |= 0x00001000;
         memo_ = value;
+        onChanged();
+        return this;
+      }
+
+      private int nTime_ ;
+      /**
+       * <code>required uint32 n_time = 14;</code>
+       *
+       * <pre>
+       * Next tag: 15
+       * </pre>
+       */
+      public boolean hasNTime() {
+        return ((bitField0_ & 0x00002000) == 0x00002000);
+      }
+      /**
+       * <code>required uint32 n_time = 14;</code>
+       *
+       * <pre>
+       * Next tag: 15
+       * </pre>
+       */
+      public int getNTime() {
+        return nTime_;
+      }
+      /**
+       * <code>required uint32 n_time = 14;</code>
+       *
+       * <pre>
+       * Next tag: 15
+       * </pre>
+       */
+      public Builder setNTime(int value) {
+        bitField0_ |= 0x00002000;
+        nTime_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>required uint32 n_time = 14;</code>
+       *
+       * <pre>
+       * Next tag: 15
+       * </pre>
+       */
+      public Builder clearNTime() {
+        bitField0_ = (bitField0_ & ~0x00002000);
+        nTime_ = 0;
         onChanged();
         return this;
       }
@@ -19032,7 +19150,7 @@ public final class Protos {
       "NKNOWN\020\000\022\014\n\010BUILDING\020\001\022\013\n\007PENDING\020\002\022\025\n\021N" +
       "OT_IN_BEST_CHAIN\020\003\022\010\n\004DEAD\020\004\022\017\n\013IN_CONFL" +
       "ICT\020\005\"A\n\006Source\022\022\n\016SOURCE_UNKNOWN\020\000\022\022\n\016S" +
-      "OURCE_NETWORK\020\001\022\017\n\013SOURCE_SELF\020\002\"\303\005\n\013Tra" +
+      "OURCE_NETWORK\020\001\022\017\n\013SOURCE_SELF\020\002\"\323\005\n\013Tra" +
       "nsaction\022\017\n\007version\030\001 \002(\005\022\014\n\004hash\030\002 \002(\014\022" +
       "&\n\004pool\030\003 \001(\0162\030.wallet.Transaction.Pool\022",
       "\021\n\tlock_time\030\004 \001(\r\022\022\n\nupdated_at\030\005 \001(\003\0223" +
@@ -19044,37 +19162,37 @@ public final class Protos {
       "nConfidence\0225\n\007purpose\030\n \001(\0162\033.wallet.Tr" +
       "ansaction.Purpose:\007UNKNOWN\022+\n\rexchange_r" +
       "ate\030\014 \001(\0132\024.wallet.ExchangeRate\022\014\n\004memo\030" +
-      "\r \001(\t\"Y\n\004Pool\022\013\n\007UNSPENT\020\004\022\t\n\005SPENT\020\005\022\014\n",
-      "\010INACTIVE\020\002\022\010\n\004DEAD\020\n\022\013\n\007PENDING\020\020\022\024\n\020PE" +
-      "NDING_INACTIVE\020\022\"\243\001\n\007Purpose\022\013\n\007UNKNOWN\020" +
-      "\000\022\020\n\014USER_PAYMENT\020\001\022\020\n\014KEY_ROTATION\020\002\022\034\n" +
-      "\030ASSURANCE_CONTRACT_CLAIM\020\003\022\035\n\031ASSURANCE" +
-      "_CONTRACT_PLEDGE\020\004\022\033\n\027ASSURANCE_CONTRACT" +
-      "_STUB\020\005\022\r\n\tRAISE_FEE\020\006\"N\n\020ScryptParamete" +
-      "rs\022\014\n\004salt\030\001 \002(\014\022\020\n\001n\030\002 \001(\003:\00516384\022\014\n\001r\030" +
-      "\003 \001(\005:\0018\022\014\n\001p\030\004 \001(\005:\0011\"8\n\tExtension\022\n\n\002i" +
-      "d\030\001 \002(\t\022\014\n\004data\030\002 \002(\014\022\021\n\tmandatory\030\003 \002(\010" +
-      "\" \n\003Tag\022\013\n\003tag\030\001 \002(\t\022\014\n\004data\030\002 \002(\014\"5\n\021Tr",
-      "ansactionSigner\022\022\n\nclass_name\030\001 \002(\t\022\014\n\004d" +
-      "ata\030\002 \001(\014\"\351\004\n\006Wallet\022\032\n\022network_identifi" +
-      "er\030\001 \002(\t\022\034\n\024last_seen_block_hash\030\002 \001(\014\022\036" +
-      "\n\026last_seen_block_height\030\014 \001(\r\022!\n\031last_s" +
-      "een_block_time_secs\030\016 \001(\003\022\030\n\003key\030\003 \003(\0132\013" +
-      ".wallet.Key\022(\n\013transaction\030\004 \003(\0132\023.walle" +
-      "t.Transaction\022&\n\016watched_script\030\017 \003(\0132\016." +
-      "wallet.Script\022C\n\017encryption_type\030\005 \001(\0162\035" +
-      ".wallet.Wallet.EncryptionType:\013UNENCRYPT" +
-      "ED\0227\n\025encryption_parameters\030\006 \001(\0132\030.wall",
-      "et.ScryptParameters\022\022\n\007version\030\007 \001(\005:\0011\022" +
-      "$\n\textension\030\n \003(\0132\021.wallet.Extension\022\023\n" +
-      "\013description\030\013 \001(\t\022\031\n\021key_rotation_time\030" +
-      "\r \001(\004\022\031\n\004tags\030\020 \003(\0132\013.wallet.Tag\0226\n\023tran" +
-      "saction_signers\030\021 \003(\0132\031.wallet.Transacti" +
-      "onSigner\";\n\016EncryptionType\022\017\n\013UNENCRYPTE" +
-      "D\020\001\022\030\n\024ENCRYPTED_SCRYPT_AES\020\002\"R\n\014Exchang" +
-      "eRate\022\022\n\ncoin_value\030\001 \002(\003\022\022\n\nfiat_value\030" +
-      "\002 \002(\003\022\032\n\022fiat_currency_code\030\003 \002(\tB\035\n\023org" +
-      ".bitcoinj.walletB\006Protos"
+      "\r \001(\t\022\016\n\006n_time\030\016 \002(\r\"Y\n\004Pool\022\013\n\007UNSPENT",
+      "\020\004\022\t\n\005SPENT\020\005\022\014\n\010INACTIVE\020\002\022\010\n\004DEAD\020\n\022\013\n" +
+      "\007PENDING\020\020\022\024\n\020PENDING_INACTIVE\020\022\"\243\001\n\007Pur" +
+      "pose\022\013\n\007UNKNOWN\020\000\022\020\n\014USER_PAYMENT\020\001\022\020\n\014K" +
+      "EY_ROTATION\020\002\022\034\n\030ASSURANCE_CONTRACT_CLAI" +
+      "M\020\003\022\035\n\031ASSURANCE_CONTRACT_PLEDGE\020\004\022\033\n\027AS" +
+      "SURANCE_CONTRACT_STUB\020\005\022\r\n\tRAISE_FEE\020\006\"N" +
+      "\n\020ScryptParameters\022\014\n\004salt\030\001 \002(\014\022\020\n\001n\030\002 " +
+      "\001(\003:\00516384\022\014\n\001r\030\003 \001(\005:\0018\022\014\n\001p\030\004 \001(\005:\0011\"8" +
+      "\n\tExtension\022\n\n\002id\030\001 \002(\t\022\014\n\004data\030\002 \002(\014\022\021\n" +
+      "\tmandatory\030\003 \002(\010\" \n\003Tag\022\013\n\003tag\030\001 \002(\t\022\014\n\004",
+      "data\030\002 \002(\014\"5\n\021TransactionSigner\022\022\n\nclass" +
+      "_name\030\001 \002(\t\022\014\n\004data\030\002 \001(\014\"\351\004\n\006Wallet\022\032\n\022" +
+      "network_identifier\030\001 \002(\t\022\034\n\024last_seen_bl" +
+      "ock_hash\030\002 \001(\014\022\036\n\026last_seen_block_height" +
+      "\030\014 \001(\r\022!\n\031last_seen_block_time_secs\030\016 \001(" +
+      "\003\022\030\n\003key\030\003 \003(\0132\013.wallet.Key\022(\n\013transacti" +
+      "on\030\004 \003(\0132\023.wallet.Transaction\022&\n\016watched" +
+      "_script\030\017 \003(\0132\016.wallet.Script\022C\n\017encrypt" +
+      "ion_type\030\005 \001(\0162\035.wallet.Wallet.Encryptio" +
+      "nType:\013UNENCRYPTED\0227\n\025encryption_paramet",
+      "ers\030\006 \001(\0132\030.wallet.ScryptParameters\022\022\n\007v" +
+      "ersion\030\007 \001(\005:\0011\022$\n\textension\030\n \003(\0132\021.wal" +
+      "let.Extension\022\023\n\013description\030\013 \001(\t\022\031\n\021ke" +
+      "y_rotation_time\030\r \001(\004\022\031\n\004tags\030\020 \003(\0132\013.wa" +
+      "llet.Tag\0226\n\023transaction_signers\030\021 \003(\0132\031." +
+      "wallet.TransactionSigner\";\n\016EncryptionTy" +
+      "pe\022\017\n\013UNENCRYPTED\020\001\022\030\n\024ENCRYPTED_SCRYPT_" +
+      "AES\020\002\"R\n\014ExchangeRate\022\022\n\ncoin_value\030\001 \002(" +
+      "\003\022\022\n\nfiat_value\030\002 \002(\003\022\032\n\022fiat_currency_c" +
+      "ode\030\003 \002(\tB\035\n\023org.bitcoinj.walletB\006Protos"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
         new com.google.protobuf.Descriptors.FileDescriptor.    InternalDescriptorAssigner() {
@@ -19141,7 +19259,7 @@ public final class Protos {
     internal_static_wallet_Transaction_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_wallet_Transaction_descriptor,
-        new java.lang.String[] { "Version", "Hash", "Pool", "LockTime", "UpdatedAt", "TransactionInput", "TransactionOutput", "BlockHash", "BlockRelativityOffsets", "Confidence", "Purpose", "ExchangeRate", "Memo", });
+        new java.lang.String[] { "Version", "Hash", "Pool", "LockTime", "UpdatedAt", "TransactionInput", "TransactionOutput", "BlockHash", "BlockRelativityOffsets", "Confidence", "Purpose", "ExchangeRate", "Memo", "NTime", });
     internal_static_wallet_ScryptParameters_descriptor =
       getDescriptor().getMessageTypes().get(9);
     internal_static_wallet_ScryptParameters_fieldAccessorTable = new

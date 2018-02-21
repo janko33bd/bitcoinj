@@ -127,4 +127,9 @@ public interface FullPrunedBlockStore extends BlockStore, UTXOProvider {
     void beginDatabaseBatchWrite() throws BlockStoreException;
     void commitDatabaseBatchWrite() throws BlockStoreException;
     void abortDatabaseBatchWrite() throws BlockStoreException;
+    
+    void setTheLast(Sha256Hash lastThird);
+
+	void putCheckPointed(StoredBlock block) throws BlockStoreException;
+	void compact();
 }

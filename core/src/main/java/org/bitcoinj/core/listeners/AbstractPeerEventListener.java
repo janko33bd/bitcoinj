@@ -17,7 +17,6 @@
 package org.bitcoinj.core.listeners;
 
 import org.bitcoinj.core.Block;
-import org.bitcoinj.core.FilteredBlock;
 import org.bitcoinj.core.GetDataMessage;
 import org.bitcoinj.core.Message;
 import org.bitcoinj.core.PeerAddress;
@@ -33,7 +32,7 @@ import java.util.Set;
 @Deprecated
 public abstract class AbstractPeerEventListener extends AbstractPeerDataEventListener implements PeerConnectionEventListener, OnTransactionBroadcastListener {
     @Override
-    public void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
+    public void onBlocksDownloaded(Peer peer, Block block, int blocksLeft) {
     }
 
     @Override

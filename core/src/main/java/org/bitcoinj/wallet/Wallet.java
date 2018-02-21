@@ -33,7 +33,6 @@ import org.bitcoinj.core.BloomFilter;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.Context;
 import org.bitcoinj.core.ECKey;
-import org.bitcoinj.core.FilteredBlock;
 import org.bitcoinj.core.InsufficientMoneyException;
 import org.bitcoinj.core.Message;
 import org.bitcoinj.core.NetworkParameters;
@@ -4687,7 +4686,7 @@ public class Wallet extends BaseTaggableObject
      * Used by {@link Peer} to decide whether or not to discard this block and any blocks building upon it, in case
      * the Bloom filter used to request them may be exhausted, that is, not have sufficient keys in the deterministic
      * sequence within it to reliably find relevant transactions.
-     */
+     
     public boolean checkForFilterExhaustion(FilteredBlock block) {
         keyChainGroupLock.lock();
         try {
@@ -4704,7 +4703,7 @@ public class Wallet extends BaseTaggableObject
         } finally {
             keyChainGroupLock.unlock();
         }
-    }
+    } */
 
     //endregion
 

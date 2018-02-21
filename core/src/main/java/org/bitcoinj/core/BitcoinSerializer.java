@@ -64,8 +64,8 @@ public class BitcoinSerializer extends MessageSerializer {
         names.put(GetHeadersMessage.class, "getheaders");
         names.put(GetAddrMessage.class, "getaddr");
         names.put(HeadersMessage.class, "headers");
-        names.put(BloomFilter.class, "filterload");
-        names.put(FilteredBlock.class, "merkleblock");
+//        names.put(BloomFilter.class, "filterload");
+//        names.put(FilteredBlock.class, "merkleblock");
         names.put(NotFoundMessage.class, "notfound");
         names.put(MemoryPoolMessage.class, "mempool");
         names.put(RejectMessage.class, "reject");
@@ -195,8 +195,9 @@ public class BitcoinSerializer extends MessageSerializer {
             message = makeInventoryMessage(payloadBytes, length);
         } else if (command.equals("block")) {
             message = makeBlock(payloadBytes, length);
-        } else if (command.equals("merkleblock")) {
-            message = makeFilteredBlock(payloadBytes);
+//        } 
+//        else if (command.equals("merkleblock")) {
+//            message = makeFilteredBlock(payloadBytes);
         } else if (command.equals("getdata")) {
             message = new GetDataMessage(params, payloadBytes, this, length);
         } else if (command.equals("getblocks")) {
@@ -217,8 +218,9 @@ public class BitcoinSerializer extends MessageSerializer {
             return new HeadersMessage(params, payloadBytes);
         } else if (command.equals("alert")) {
             return makeAlertMessage(payloadBytes);
-        } else if (command.equals("filterload")) {
-            return makeBloomFilter(payloadBytes);
+//        } 
+//        else if (command.equals("filterload")) {
+//            return makeBloomFilter(payloadBytes);
         } else if (command.equals("notfound")) {
             return new NotFoundMessage(params, payloadBytes);
         } else if (command.equals("mempool")) {
@@ -282,11 +284,11 @@ public class BitcoinSerializer extends MessageSerializer {
     /**
      * Make a filtered block from the payload. Extension point for alternative
      * serialization format support.
-     */
+     
     @Override
     public FilteredBlock makeFilteredBlock(byte[] payloadBytes) throws ProtocolException {
         return new FilteredBlock(params, payloadBytes);
-    }
+    }*/
 
     /**
      * Make an inventory message from the payload. Extension point for alternative

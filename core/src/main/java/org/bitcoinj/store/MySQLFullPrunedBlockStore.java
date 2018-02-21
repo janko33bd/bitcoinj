@@ -17,6 +17,8 @@
 package org.bitcoinj.store;
 
 import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.core.Sha256Hash;
+import org.bitcoinj.core.StoredBlock;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -154,4 +156,22 @@ public class MySQLFullPrunedBlockStore extends DatabaseFullPrunedBlockStore {
     protected String getDatabaseDriverClass() {
         return DATABASE_DRIVER_CLASS;
     }
+
+	@Override
+	public void setTheLast(Sha256Hash lastThird) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void putCheckPointed(StoredBlock block) throws BlockStoreException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void compact() {
+		// TODO Auto-generated method stub
+		
+	}
 }

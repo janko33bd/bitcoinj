@@ -1289,4 +1289,19 @@ public class ECKey implements EncryptableItem {
             builder.append("\n");
         }
     }
+
+    public ECDSASignature signReversed(Sha256Hash input) throws KeyCrypterException {
+        if (priv == null)
+            throw new MissingPrivateKeyException();
+        return doSignReversed(input, priv);
+    }
+    
+    protected ECDSASignature doSignReversed(Sha256Hash input, BigInteger privateKeyForSigning) {
+        checkNotNull(privateKeyForSigning);
+        ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
+        ECPrivateKeyParameters privKey = new ECPrivateKeyParameters(privateKeyForSigning, CURVE);
+        signer.init(true, privKey);
+        BigInteger[] components = signer.generateSignature(Utils.reverseBytes(input.getBytes()));
+        return new ECDSASignature(components[0], components[1]).toCanonicalised();
+    }
 }

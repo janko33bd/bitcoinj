@@ -461,7 +461,7 @@ public class LevelDBFullPrunedBlockStore implements FullPrunedBlockStore {
                     Script sc = txout.getScript();
                     Address address = sc.getToAddress(params, true);
                     UTXO output = new UTXO(txout.getHash(), txout.getIndex(), txout.getValue(), txout.getHeight(),
-                            txout.isCoinbase(), txout.getScript(), address.toString());
+                            txout.isCoinbase(), txout.getScript(), address.toString(), 0l);
                     results.add(output);
                 }
             }
@@ -1130,4 +1130,22 @@ public class LevelDBFullPrunedBlockStore implements FullPrunedBlockStore {
         }
         openDB();
     }
+
+	@Override
+	public void setTheLast(Sha256Hash lastThird) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void putCheckPointed(StoredBlock block) throws BlockStoreException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void compact() {
+		// TODO Auto-generated method stub
+		
+	}
 }

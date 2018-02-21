@@ -290,8 +290,8 @@ message Transaction {
   // Memo of the transaction. It can be used to record the memo of the payment request that initiated the
   // transaction.
   optional string memo = 13;
-
-  // Next tag: 14
+  required uint32 n_time = 14;
+  // Next tag: 15
 }
 
 /** The parameters used in the scrypt key derivation function.

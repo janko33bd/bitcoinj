@@ -19,6 +19,7 @@ package org.bitcoinj.core;
 
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.*;
+import com.lambdaworks.crypto.SCrypt;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -222,6 +223,14 @@ public class Sha256Hash implements Serializable, Comparable<Sha256Hash> {
         digest.update(input2, offset2, length2);
         return digest.digest(digest.digest());
     }
+    
+    public static byte[] scryptDigest(byte[] input) {
+		try {
+			return SCrypt.scrypt(input, input, 1024, 1, 1, 32);
+		} catch (Exception e) {
+			return null;
+		}
+	}
 
     @Override
     public boolean equals(Object o) {
@@ -279,4 +288,5 @@ public class Sha256Hash implements Serializable, Comparable<Sha256Hash> {
         }
         return 0;
     }
+
 }

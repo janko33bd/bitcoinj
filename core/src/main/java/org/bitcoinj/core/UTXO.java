@@ -39,6 +39,7 @@ public class UTXO {
     private int height;
     private boolean coinbase;
     private String address;
+	private long txTime;
 
     /**
      * Creates a stored transaction output.
@@ -48,13 +49,15 @@ public class UTXO {
      * @param value    The value available.
      * @param height   The height this output was created in.
      * @param coinbase The coinbase flag.
+     * @param nTime 
      */
     public UTXO(Sha256Hash hash,
                 long index,
                 Coin value,
                 int height,
                 boolean coinbase,
-                Script script) {
+                Script script, 
+                long txTime) {
         this.hash = hash;
         this.index = index;
         this.value = value;
@@ -62,6 +65,7 @@ public class UTXO {
         this.script = script;
         this.coinbase = coinbase;
         this.address = "";
+        this.txTime = txTime;
     }
 
     /**
@@ -73,6 +77,7 @@ public class UTXO {
      * @param height   The height this output was created in.
      * @param coinbase The coinbase flag.
      * @param address  The address.
+     * @param object 
      */
     public UTXO(Sha256Hash hash,
                 long index,
@@ -80,12 +85,20 @@ public class UTXO {
                 int height,
                 boolean coinbase,
                 Script script,
-                String address) {
-        this(hash, index, value, height, coinbase, script);
+                String address, 
+                long txTime) {
+        this(hash, index, value, height, coinbase, script, txTime);
         this.address = address;
     }
 
     public UTXO(InputStream in) throws IOException {
+    	byte[] identifyFlag = new byte[1];
+    	in.read(identifyFlag);
+    	        
+    	byte[] txTimeBytes = new byte[8];
+    	if (in.read(txTimeBytes) != 8)
+    		throw new EOFException();
+    	txTime = Utils.readInt64(txTimeBytes, 0);
         byte[] valueBytes = new byte[8];
         if (in.read(valueBytes, 0, 8) != 8)
             throw new EOFException();
@@ -118,6 +131,10 @@ public class UTXO {
         byte[] coinbaseByte = new byte[1];
         in.read(coinbaseByte);
         coinbase = coinbaseByte[0] == 1;
+    }
+    
+    public long getTxTime() {
+    	return txTime;
     }
 
     /** The value which this Transaction output holds. */
@@ -174,6 +191,9 @@ public class UTXO {
     }
 
     public void serializeToStream(OutputStream bos) throws IOException {
+    	byte[] identifyFlag = new byte[] { (byte)0};
+    	bos.write(identifyFlag);
+    	Utils.uint64ToByteStreamLE(BigInteger.valueOf(txTime), bos);
         Utils.uint64ToByteStreamLE(BigInteger.valueOf(value.value), bos);
 
         byte[] scriptBytes = script.getProgram();

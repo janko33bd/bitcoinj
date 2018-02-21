@@ -298,7 +298,7 @@ public class BloomFilter extends Message {
      * filter to be updated with the matched element, this ensures that when a filter is applied to a block, spends of
      * matched transactions are also matched. However it means this filter can be mutated by the operation. The returned
      * filtered block already has the matched transactions associated with it.
-     */
+     
     public synchronized FilteredBlock applyAndUpdate(Block block) {
         List<Transaction> txns = block.getTransactions();
         List<Sha256Hash> txHashes = new ArrayList<Sha256Hash>(txns.size());
@@ -317,7 +317,7 @@ public class BloomFilter extends Message {
         for (Transaction transaction : matched)
             filteredBlock.provideTransaction(transaction);
         return filteredBlock;
-    }
+    } */
 
     public synchronized boolean applyAndUpdate(Transaction tx) {
         if (contains(tx.getHash().getBytes()))

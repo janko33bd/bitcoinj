@@ -96,8 +96,8 @@ public abstract class MessageSerializer {
     /**
      * Make a filtered block from the payload. Extension point for alternative
      * serialization format support.
-     */
-    public abstract FilteredBlock makeFilteredBlock(byte[] payloadBytes) throws ProtocolException, UnsupportedOperationException;
+     
+    public abstract FilteredBlock makeFilteredBlock(byte[] payloadBytes) throws ProtocolException, UnsupportedOperationException;*/
 
     /**
      * Make an inventory message from the payload. Extension point for alternative

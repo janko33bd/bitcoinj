@@ -18,7 +18,6 @@
 package org.bitcoinj.core.listeners;
 
 import org.bitcoinj.core.Block;
-import org.bitcoinj.core.FilteredBlock;
 import org.bitcoinj.core.Peer;
 import org.bitcoinj.core.Utils;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -60,7 +59,7 @@ public class DownloadProgressTracker extends AbstractPeerDataEventListener {
     }
 
     @Override
-    public void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
+    public void onBlocksDownloaded(Peer peer, Block block, int blocksLeft) {
         if (caughtUp)
             return;
 

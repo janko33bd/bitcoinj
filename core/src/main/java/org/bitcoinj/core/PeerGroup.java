@@ -45,6 +45,7 @@ import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.*;
+import org.blackcoinj.pos.BlackcoinMagic;
 
 import static com.google.common.base.Preconditions.*;
 
@@ -169,13 +170,13 @@ public class PeerGroup implements TransactionBroadcaster {
     private int minBroadcastConnections = 0;
     private final ScriptsChangeEventListener walletScriptEventListener = new ScriptsChangeEventListener() {
         @Override public void onScriptsChanged(Wallet wallet, List<Script> scripts, boolean isAddingScripts) {
-            recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
+            //recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
         }
     };
 
     private final KeyChainEventListener walletKeyEventListener = new KeyChainEventListener() {
         @Override public void onKeysAdded(List<ECKey> keys) {
-            recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
+            //recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
         }
     };
 
@@ -206,10 +207,10 @@ public class PeerGroup implements TransactionBroadcaster {
             // and shouldn't, we should just recalculate and cache the new filter for next time.
             for (TransactionOutput output : tx.getOutputs()) {
                 if (output.getScriptPubKey().isSentToRawPubKey() && output.isMine(wallet)) {
-                    if (tx.getConfidence().getConfidenceType() == TransactionConfidence.ConfidenceType.BUILDING)
-                        recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
-                    else
-                        recalculateFastCatchupAndFilter(FilterRecalculateMode.DONT_SEND);
+//                    if (tx.getConfidence().getConfidenceType() == TransactionConfidence.ConfidenceType.BUILDING)
+//                        //recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
+//                    else
+//                        //recalculateFastCatchupAndFilter(FilterRecalculateMode.DONT_SEND);
                     return;
                 }
             }
@@ -237,16 +238,16 @@ public class PeerGroup implements TransactionBroadcaster {
         }
 
         @Override
-        public void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
-            if (chain == null) return;
-            final double rate = chain.getFalsePositiveRate();
-            final double target = bloomFilterMerger.getBloomFilterFPRate() * MAX_FP_RATE_INCREASE;
-            if (rate > target) {
-                // TODO: Avoid hitting this path if the remote peer didn't acknowledge applying a new filter yet.
-                if (log.isDebugEnabled())
-                    log.debug("Force update Bloom filter due to high false positive rate ({} vs {})", rate, target);
-                recalculateFastCatchupAndFilter(FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
-            }
+        public void onBlocksDownloaded(Peer peer, Block block, int blocksLeft) {
+//            if (chain == null) return;
+//            final double rate = chain.getFalsePositiveRate();
+//            final double target = bloomFilterMerger.getBloomFilterFPRate() * MAX_FP_RATE_INCREASE;
+//            if (rate > target) {
+//                // TODO: Avoid hitting this path if the remote peer didn't acknowledge applying a new filter yet.
+//                if (log.isDebugEnabled())
+//                    log.debug("Force update Bloom filter due to high false positive rate ({} vs {})", rate, target);
+//                recalculateFastCatchupAndFilter(FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
+//            }
         }
     }
 
@@ -278,14 +279,14 @@ public class PeerGroup implements TransactionBroadcaster {
     public static final double MAX_FP_RATE_INCREASE = 10.0f;
     // An object that calculates bloom filters given a list of filter providers, whilst tracking some state useful
     // for privacy purposes.
-    private final FilterMerger bloomFilterMerger;
+    // private final FilterMerger bloomFilterMerger;
 
     /** The default timeout between when a connection attempt begins and version message exchange completes */
     public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 5000;
     private volatile int vConnectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     
     /** Whether bloom filter support is enabled when using a non FullPrunedBlockchain*/
-    private volatile boolean vBloomFilteringEnabled = true;
+    private volatile boolean vBloomFilteringEnabled = false;
 
     /** See {@link #PeerGroup(Context)} */
     public PeerGroup(NetworkParameters params) {
@@ -436,8 +437,8 @@ public class PeerGroup implements TransactionBroadcaster {
         channels = connectionManager;
         peerDiscoverers = new CopyOnWriteArraySet<PeerDiscovery>();
         runningBroadcasts = Collections.synchronizedSet(new HashSet<TransactionBroadcast>());
-        bloomFilterMerger = new FilterMerger(DEFAULT_BLOOM_FILTER_FP_RATE);
-        vMinRequiredProtocolVersion = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
+        // bloomFilterMerger = new FilterMerger(DEFAULT_BLOOM_FILTER_FP_RATE);
+        // vMinRequiredProtocolVersion = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
     }
 
     private CountDownLatch executorStartupLatch = new CountDownLatch(1);
@@ -1264,9 +1265,9 @@ public class PeerGroup implements TransactionBroadcaster {
      * The return value of this method is the <code>ListenableFuture</code> returned by that invocation.</p>
      *
      * @return a future that completes once each <code>Peer</code> in this group has had its
-     *         <code>BloomFilter</code> (re)set.
-     */
-    public ListenableFuture<BloomFilter> addPeerFilterProvider(PeerFilterProvider provider) {
+     *         <code>BloomFilter</code> (re)set. */
+     
+    public void addPeerFilterProvider(PeerFilterProvider provider) {
         lock.lock();
         try {
             checkNotNull(provider);
@@ -1285,13 +1286,13 @@ public class PeerGroup implements TransactionBroadcaster {
             // if a key is added. Of course, by then we may have downloaded the chain already. Ideally adding keys would
             // automatically rewind the block chain and redownload the blocks to find transactions relevant to those keys,
             // all transparently and in the background. But we are a long way from that yet.
-            ListenableFuture<BloomFilter> future = recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
+            // ListenableFuture<BloomFilter> future = recalculateFastCatchupAndFilter(FilterRecalculateMode.SEND_IF_CHANGED);
             updateVersionMessageRelayTxesBeforeFilter(getVersionMessage());
-            return future;
+            // return future;
         } finally {
             lock.unlock();
         }
-    }
+    } 
 
     /**
      * Opposite of {@link #addPeerFilterProvider(PeerFilterProvider)}. Again, don't use this for wallets. Does not
@@ -1338,71 +1339,71 @@ public class PeerGroup implements TransactionBroadcaster {
      * @param mode In what situations to send the filter to connected peers.
      * @return a future that completes once the filter has been calculated (note: this does not mean acknowledged by remote peers).
      */
-    public ListenableFuture<BloomFilter> recalculateFastCatchupAndFilter(final FilterRecalculateMode mode) {
-        final SettableFuture<BloomFilter> future = SettableFuture.create();
-        synchronized (inFlightRecalculations) {
-            if (inFlightRecalculations.get(mode) != null)
-                return inFlightRecalculations.get(mode);
-            inFlightRecalculations.put(mode, future);
-        }
-        Runnable command = new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    go();
-                } catch (Throwable e) {
-                    log.error("Exception when trying to recalculate Bloom filter", e);  // The executor swallows exceptions :(
-                }
-            }
-
-            public void go() {
-                checkState(!lock.isHeldByCurrentThread());
-                // Fully verifying mode doesn't use this optimization (it can't as it needs to see all transactions).
-                if ((chain != null && chain.shouldVerifyTransactions()) || !vBloomFilteringEnabled)
-                    return;
-                // We only ever call bloomFilterMerger.calculate on jobQueue, so we cannot be calculating two filters at once.
-                FilterMerger.Result result = bloomFilterMerger.calculate(ImmutableList.copyOf(peerFilterProviders /* COW */));
-                boolean send;
-                switch (mode) {
-                    case SEND_IF_CHANGED:
-                        send = result.changed;
-                        break;
-                    case DONT_SEND:
-                        send = false;
-                        break;
-                    case FORCE_SEND_FOR_REFRESH:
-                        send = true;
-                        break;
-                    default:
-                        throw new UnsupportedOperationException();
-                }
-                if (send) {
-                    for (Peer peer : peers /* COW */) {
-                        // Only query the mempool if this recalculation request is not in order to lower the observed FP
-                        // rate. There's no point querying the mempool when doing this because the FP rate can only go
-                        // down, and we will have seen all the relevant txns before: it's pointless to ask for them again.
-                        peer.setBloomFilter(result.filter, mode != FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
-                    }
-                    // Reset the false positive estimate so that we don't send a flood of filter updates
-                    // if the estimate temporarily overshoots our threshold.
-                    if (chain != null)
-                        chain.resetFalsePositiveEstimate();
-                }
-                // Do this last so that bloomFilter is already set when it gets called.
-                setFastCatchupTimeSecs(result.earliestKeyTimeSecs);
-                synchronized (inFlightRecalculations) {
-                    inFlightRecalculations.put(mode, null);
-                }
-                future.set(result.filter);
-            }
-        };
-        try {
-            executor.execute(command);
-        } catch (RejectedExecutionException e) {
-            // Can happen during shutdown.
-        }
-        return future;
-    }
+//    public ListenableFuture<BloomFilter> recalculateFastCatchupAndFilter(final FilterRecalculateMode mode) {
+//        final SettableFuture<BloomFilter> future = SettableFuture.create();
+//        synchronized (inFlightRecalculations) {
+//            if (inFlightRecalculations.get(mode) != null)
+//                return inFlightRecalculations.get(mode);
+//            inFlightRecalculations.put(mode, future);
+//        }
+//        Runnable command = new Runnable() {
+//            @Override
+//            public void run() {
+//                try {
+//                    go();
+//                } catch (Throwable e) {
+//                    log.error("Exception when trying to recalculate Bloom filter", e);  // The executor swallows exceptions :(
+//                }
+//            }
+//
+//            public void go() {
+//                checkState(!lock.isHeldByCurrentThread());
+//                // Fully verifying mode doesn't use this optimization (it can't as it needs to see all transactions).
+//                if ((chain != null && chain.shouldVerifyTransactions()) || !vBloomFilteringEnabled)
+//                    return;
+//                // We only ever call bloomFilterMerger.calculate on jobQueue, so we cannot be calculating two filters at once.
+//                FilterMerger.Result result = bloomFilterMerger.calculate(ImmutableList.copyOf(peerFilterProviders /* COW */));
+//                boolean send;
+//                switch (mode) {
+//                    case SEND_IF_CHANGED:
+//                        send = result.changed;
+//                        break;
+//                    case DONT_SEND:
+//                        send = false;
+//                        break;
+//                    case FORCE_SEND_FOR_REFRESH:
+//                        send = true;
+//                        break;
+//                    default:
+//                        throw new UnsupportedOperationException();
+//                }
+//                if (send) {
+////                    for (Peer peer : peers /* COW */) {
+////                        // Only query the mempool if this recalculation request is not in order to lower the observed FP
+////                        // rate. There's no point querying the mempool when doing this because the FP rate can only go
+////                        // down, and we will have seen all the relevant txns before: it's pointless to ask for them again.
+////                        // peer.setBloomFilter(result.filter, mode != FilterRecalculateMode.FORCE_SEND_FOR_REFRESH);
+////                    }
+//                    // Reset the false positive estimate so that we don't send a flood of filter updates
+//                    // if the estimate temporarily overshoots our threshold.
+//                    if (chain != null)
+//                        chain.resetFalsePositiveEstimate();
+//                }
+//                // Do this last so that bloomFilter is already set when it gets called.
+//                setFastCatchupTimeSecs(result.earliestKeyTimeSecs);
+//                synchronized (inFlightRecalculations) {
+//                    inFlightRecalculations.put(mode, null);
+//                }
+//                future.set(result.filter);
+//            }
+//        };
+//        try {
+//            executor.execute(command);
+//        } catch (RejectedExecutionException e) {
+//            // Can happen during shutdown.
+//        }
+//        return future;
+//    }
     
     /**
      * <p>Sets the false positive rate of bloom filters given to peers. The default is {@link #DEFAULT_BLOOM_FILTER_FP_RATE}.</p>
@@ -1412,7 +1413,7 @@ public class PeerGroup implements TransactionBroadcaster {
      * 
      * <p>See the docs for {@link BloomFilter#BloomFilter(int, double, long, BloomFilter.BloomUpdate)} for a brief
      * explanation of anonymity when using bloom filters.</p>
-     */
+     
     public void setBloomFilterFalsePositiveRate(double bloomFilterFPRate) {
         lock.lock();
         try {
@@ -1421,7 +1422,7 @@ public class PeerGroup implements TransactionBroadcaster {
         } finally {
             lock.unlock();
         }
-    }
+    } */
 
     /**
      * Returns the number of currently connected peers. To be informed when this count changes, register a 
@@ -1485,7 +1486,7 @@ public class PeerGroup implements TransactionBroadcaster {
         Peer peer = createPeer(address, ver);
         peer.addConnectedEventListener(Threading.SAME_THREAD, startupListener);
         peer.addDisconnectedEventListener(Threading.SAME_THREAD, startupListener);
-        peer.setMinProtocolVersion(vMinRequiredProtocolVersion);
+        peer.setMinProtocolVersion();
         pendingPeers.add(peer);
 
         try {
@@ -1611,7 +1612,7 @@ public class PeerGroup implements TransactionBroadcaster {
             // Give the peer a filter that can be used to probabilistically drop transactions that
             // aren't relevant to our wallet. We may still receive some false positives, which is
             // OK because it helps improve wallet privacy. Old nodes will just ignore the message.
-            if (bloomFilterMerger.getLastFilter() != null) peer.setBloomFilter(bloomFilterMerger.getLastFilter());
+            // if (bloomFilterMerger.getLastFilter() != null) peer.setBloomFilter(bloomFilterMerger.getLastFilter());
             peer.setDownloadData(false);
             // TODO: The peer should calculate the fast catchup time from the added wallets here.
             for (Wallet wallet : wallets)
@@ -1708,7 +1709,7 @@ public class PeerGroup implements TransactionBroadcaster {
                 }
                 downloadPeer.setDownloadData(true);
                 if (chain != null)
-                    downloadPeer.setDownloadParameters(fastCatchupTimeSecs, bloomFilterMerger.getLastFilter() != null);
+                    downloadPeer.setDownloadParameters(fastCatchupTimeSecs, false);
             }
         } finally {
             lock.unlock();
@@ -1732,7 +1733,7 @@ public class PeerGroup implements TransactionBroadcaster {
             checkState(chain == null || !chain.shouldVerifyTransactions(), "Fast catchup is incompatible with fully verifying");
             fastCatchupTimeSecs = secondsSinceEpoch;
             if (downloadPeer != null) {
-                downloadPeer.setDownloadParameters(secondsSinceEpoch, bloomFilterMerger.getLastFilter() != null);
+                downloadPeer.setDownloadParameters(secondsSinceEpoch, false);
             }
         } finally {
             lock.unlock();
@@ -1874,16 +1875,15 @@ public class PeerGroup implements TransactionBroadcaster {
         private boolean syncDone;
 
         @Override
-        public synchronized void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft) {
+        public synchronized void onBlocksDownloaded(Peer peer, Block block, int blocksLeft) {
             blocksInLastSecond++;
             bytesInLastSecond += Block.HEADER_SIZE;
             List<Transaction> blockTransactions = block.getTransactions();
             // This whole area of the type hierarchy is a mess.
-            int txCount = (blockTransactions != null ? countAndMeasureSize(blockTransactions) : 0) +
-                          (filteredBlock != null ? countAndMeasureSize(filteredBlock.getAssociatedTransactions().values()) : 0);
+            int txCount = (blockTransactions != null ? countAndMeasureSize(blockTransactions) : 0);
             txnsInLastSecond = txnsInLastSecond + txCount;
-            if (filteredBlock != null)
-                origTxnsInLastSecond += filteredBlock.getTransactionCount();
+//            if (filteredBlock != null)
+//                origTxnsInLastSecond += filteredBlock.getTransactionCount();
         }
 
         private int countAndMeasureSize(Collection<Transaction> transactions) {
@@ -2299,7 +2299,7 @@ public class PeerGroup implements TransactionBroadcaster {
         // better then we'll settle for the highest we found instead.
         int highestVersion = 0, preferredVersion = 0;
         // If/when PREFERRED_VERSION is not equal to vMinRequiredProtocolVersion, reenable the last test in PeerGroupTest.downloadPeerSelection
-        final int PREFERRED_VERSION = params.getProtocolVersionNum(NetworkParameters.ProtocolVersion.BLOOM_FILTER);
+        final int PREFERRED_VERSION = BlackcoinMagic.protocolVersion;
         for (Peer peer : candidates) {
             highestVersion = Math.max(peer.getPeerVersionMessage().clientVersion, highestVersion);
             preferredVersion = Math.min(highestVersion, PREFERRED_VERSION);

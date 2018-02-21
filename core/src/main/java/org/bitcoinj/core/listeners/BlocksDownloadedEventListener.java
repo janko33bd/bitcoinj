@@ -36,8 +36,7 @@ public interface BlocksDownloadedEventListener {
      *
      * @param peer       the peer receiving the block
      * @param block      the downloaded block
-     * @param filteredBlock if non-null, the object that wraps the block header passed as the block param.
      * @param blocksLeft the number of blocks left to download
      */
-    void onBlocksDownloaded(Peer peer, Block block, @Nullable FilteredBlock filteredBlock, int blocksLeft);
+    void onBlocksDownloaded(Peer peer, Block block, int blocksLeft);
 }
