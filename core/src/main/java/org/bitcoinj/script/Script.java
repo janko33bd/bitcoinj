@@ -294,7 +294,10 @@ public class Script {
         if (chunk0data != null && chunk0data.length > 2 && chunk1data != null && chunk1data.length > 2) {
             // If we have two large constants assume the input to a pay-to-address output.
             return chunk1data;
-        } else if (chunk1.equalsOpCode(OP_CHECKSIG) && chunk0data != null && chunk0data.length > 2) {
+        }else if (chunk0.equalsOpCode(OP_RETURN) && chunk1data != null && chunk1data.length > 2) {
+            // A large constant followed by an OP_CHECKSIG is the key.
+            return chunk1data;
+        }  else if (chunk1.equalsOpCode(OP_CHECKSIG) && chunk0data != null && chunk0data.length > 2) {
             // A large constant followed by an OP_CHECKSIG is the key.
             return chunk0data;
         } else {
