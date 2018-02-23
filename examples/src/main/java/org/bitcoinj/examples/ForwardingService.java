@@ -46,35 +46,38 @@ public class ForwardingService {
     public static void main(String[] args) throws Exception {
         // This line makes the log output more compact and easily read, especially when using the JDK log adapter.
         BriefLogFormatter.init();
-        if (args.length < 1) {
-            System.err.println("Usage: address-to-send-back-to [regtest|testnet]");
-            return;
-        }
+//        if (args.length < 1) {
+//            System.err.println("Usage: address-to-send-back-to [regtest|testnet]");
+//            return;
+//        }
 
         // Figure out which network we should connect to. Each one gets its own set of files.
-        NetworkParameters params;
-        String filePrefix;
-        if (args.length > 1 && args[1].equals("testnet")) {
-            params = TestNet3Params.get();
-            filePrefix = "forwarding-service-testnet";
-        } else if (args.length > 1 && args[1].equals("regtest")) {
-            params = RegTestParams.get();
-            filePrefix = "forwarding-service-regtest";
-        } else {
-            params = MainNetParams.get();
-            filePrefix = "forwarding-service";
-        }
+        
+//        String filePrefix;
+//        if (args.length > 1 && args[1].equals("testnet")) {
+//            params = TestNet3Params.get();
+//            filePrefix = "forwarding-service-testnet";
+//        } else if (args.length > 1 && args[1].equals("regtest")) {
+//            params = RegTestParams.get();
+//            filePrefix = "forwarding-service-regtest";
+//        } else {
+//            params = MainNetParams.get();
+//            filePrefix = "forwarding-service";
+//        }
+        
+        NetworkParameters params = MainNetParams.get();
         // Parse the address given as the first parameter.
-        forwardingAddress = Address.fromBase58(params, args[0]);
+        forwardingAddress = Address.fromBase58(params, "BG7dWQDzedo6BnX6WjXQy9JrymNyizf4ML");
 
         // Start up a basic app using a class that automates some boilerplate.
-        kit = new WalletAppKit(params, new File("."), filePrefix);
+        kit = new WalletAppKit(params, new File("."), "forwarding-service");
 
-        if (params == RegTestParams.get()) {
-            // Regression test mode is designed for testing and development only, so there's no public network for it.
-            // If you pick this mode, you're expected to be running a local "bitcoind -regtest" instance.
-            kit.connectToLocalHost();
-        }
+//        if (params == RegTestParams.get()) {
+//            // Regression test mode is designed for testing and development only, so there's no public network for it.
+//            // If you pick this mode, you're expected to be running a local "bitcoind -regtest" instance.
+//            
+//        }
+        kit.connectToLocalHost();
 
         // Download the block chain and wait until it's done.
         kit.startAsync();
