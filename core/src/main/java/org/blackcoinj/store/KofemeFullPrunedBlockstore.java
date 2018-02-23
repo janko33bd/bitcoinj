@@ -66,11 +66,12 @@ public class KofemeFullPrunedBlockstore  implements FullPrunedBlockStore {
 	private void initMap(Kryo kryo, String dbName) throws BlockStoreException {
 		log.info("looking for " + dbName);
 		Input input = null;
+		File dbFile = new File(dbName);
 		try {
-			input = new Input(new FileInputStream(new File(dbName)));
+			input = new Input(new FileInputStream(dbFile));
 			wholeMap = kryo.readObject(input, HashMap.class, serializer);
 		} catch (FileNotFoundException e) {
-			throw new BlockStoreException("Couldn't find the file");
+			throw new BlockStoreException("Couldn't find the file: " + dbFile.getAbsolutePath());
 		}finally {
 			if (input != null) {
 				input.close();

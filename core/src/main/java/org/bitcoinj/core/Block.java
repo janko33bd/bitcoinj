@@ -463,7 +463,7 @@ public class Block extends Message {
      */
     @Override
     public Sha256Hash getHash() {
-    	if(getPrevBlockHash().equals(Sha256Hash.ZERO_HASH) || getVersion() != BlackcoinMagic.sha256BlockVersion){
+    	if(getVersion() < BlackcoinMagic.sha256BlockVersion){
 			if (scryptHash == null)
 				scryptHash = calculateScryptHash();
 			return scryptHash;
@@ -1070,6 +1070,7 @@ public class Block extends Message {
     		throw new VerificationException("Is not Canonical");
     	genuine = ECKey.verify(Utils.reverseBytes(getHash().getBytes()), decodedSignature, scriptPubKey.getPubKey());
     	if(!genuine){
+    		log.info(String.valueOf(blockSig.length));
     		throw new VerificationException("Wrong Block signature");
     	}
     	
