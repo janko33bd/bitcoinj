@@ -67,7 +67,7 @@ public class ForwardingService {
         
         NetworkParameters params = MainNetParams.get();
         // Parse the address given as the first parameter.
-        forwardingAddress = Address.fromBase58(params, "BG7dWQDzedo6BnX6WjXQy9JrymNyizf4ML");
+        forwardingAddress = Address.fromBase58(params, "BFwwnJZue8Uo1aVFRizDKTJvK6dmfG4tBa");
 
         // Start up a basic app using a class that automates some boilerplate.
         kit = new WalletAppKit(params, new File("."), "forwarding-service");
