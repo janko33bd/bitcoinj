@@ -36,6 +36,7 @@ public class LevelDBStoreFullPrunedBlackstore implements FullPrunedBlockStore {
 	
 
 	public LevelDBStoreFullPrunedBlackstore(NetworkParameters params, String dbName) throws BlockStoreException {
+		log.info("opening " + dbName);
 		this.params = params;
 		Options options = new Options();
 		options.createIfMissing(true);
@@ -315,6 +316,10 @@ public class LevelDBStoreFullPrunedBlackstore implements FullPrunedBlockStore {
 	public void compact() {
 		// TODO Auto-generated method stub
 		
+	}
+
+	public DB getStore() {
+		return store;
 	}
 
 }

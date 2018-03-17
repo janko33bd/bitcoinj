@@ -277,7 +277,7 @@ public class WalletAppKit extends AbstractIdleService {
             vWallet = createOrLoadWallet(shouldReplayWallet);
 
             // Initiate Bitcoin network objects (block store, blockchain and peer group)
-            vStore = new H2MVStoreFullPrunedBlockstore(params, chainFile.getPath());
+            vStore = new LevelDBStoreFullPrunedBlackstore(params, chainFile.getPath());
             vChain = new FullPrunedBlockChain(params, vStore);
             vPeerGroup = createPeerGroup();
             if (this.userAgent != null)

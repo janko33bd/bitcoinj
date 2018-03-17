@@ -14,14 +14,14 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionOutputChanges;
 import org.bitcoinj.store.BlockStoreException;
 
-public class BlackBlock {
+public class BlackBlockbck {
 	public StoredBlock block;
 	public boolean wasUndoable;
 	// Only one of either txOutChanges or transactions will be set
 	public TransactionOutputChanges txOutChanges;
 	public List<Transaction> transactions;
 	
-	public BlackBlock(StoredBlock block, boolean wasUndoable, TransactionOutputChanges txOutChanges,
+	public BlackBlockbck(StoredBlock block, boolean wasUndoable, TransactionOutputChanges txOutChanges,
 			List<Transaction> transactions) {
 		super();
 		this.block = block;
@@ -29,13 +29,12 @@ public class BlackBlock {
 		this.txOutChanges = txOutChanges;
 		this.transactions = transactions;
 	}
-	public BlackBlock(NetworkParameters params, byte[] byteArray) throws BlockStoreException{
+	public BlackBlockbck(NetworkParameters params, byte[] byteArray) throws BlockStoreException{
 		ByteBuffer buffer = ByteBuffer.wrap(byteArray);
 		byte[] identifyFlag = new byte[1];
     	buffer.get(identifyFlag);
-		
     	this.block = StoredBlock.deserializeBlkCompact(params, buffer);
-		
+    	
     	byte undo = buffer.get();
 		if (undo == 1)
 			this.wasUndoable = true;
@@ -60,7 +59,7 @@ public class BlackBlock {
             this.transactions = extractTxList(params, txBytes);
 		}
 	}
-	
+
 	private List<Transaction> extractTxList(NetworkParameters params, byte[] txBytes) {
 		int offset = 0;
 		int numTxn = ((txBytes[offset++] & 0xFF)) |
@@ -74,8 +73,8 @@ public class BlackBlock {
 		    offset += tx.getMessageSize();
 		}
 		return transactionList;
-	}	
-	
+	}
+
 	public byte[] toByteArray() throws BlockStoreException {
 		//tx or txOUT?		
 		byte[] txOutBytes = null;
@@ -104,11 +103,10 @@ public class BlackBlock {
 		// now we know
 		ByteBuffer buffer = ByteBuffer.allocate(1 + StoredBlock.COMPACT_SERIALIZED_BLK_SIZE + 1 + 1 +(txOutBytes!=null?txOutBytes.length:0) );
 		
-		//identifyFlag(1) + storedBlock(169) + wasUndoable(1) + txOrTxOut(1) + txOutBytes(variable)
+		//identifyFlag(1) + storedBlock(218) + wasUndoable(1) + txOrTxOut(1) + txOutBytes(variable)
 		//identify flag 1
 		byte[] identifyFlag = new byte[] { (byte)1};        
     	buffer.put(identifyFlag);
-    	
 		// stored block
     	block.serializeBlkCompact(buffer);
 		// undoable

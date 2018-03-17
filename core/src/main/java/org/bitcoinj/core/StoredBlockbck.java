@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2011 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,10 +18,11 @@ package org.bitcoinj.core;
 
 import org.bitcoinj.store.BlockStore;
 import org.bitcoinj.store.BlockStoreException;
+import com.google.common.base.Objects;
 
-import java.io.*;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 
 import static com.google.common.base.Preconditions.checkState;
 
@@ -34,22 +35,20 @@ import static com.google.common.base.Preconditions.checkState;
  *
  * StoredBlocks are put inside a {@link BlockStore} which saves them to memory or disk.
  */
-public class StoredBlock implements Serializable {
-    private static final long serialVersionUID = -6097565241243701771L;
+public class StoredBlockbck {
 
     // A BigInteger representing the total amount of work done so far on this chain. As of May 2011 it takes 8
     // bytes to represent this field, so 12 bytes should be plenty for now.
     public static final int CHAIN_WORK_BYTES = 12;
     public static final byte[] EMPTY_BYTES = new byte[CHAIN_WORK_BYTES];
     public static final int COMPACT_SERIALIZED_SIZE = Block.HEADER_SIZE + CHAIN_WORK_BYTES + 4;  // for height
-    public static final int COMPACT_SERIALIZED_BLK_SIZE = COMPACT_SERIALIZED_SIZE + 32 + 32 + 8 + 1;
-    //COMPACT_SERIALIZED_SIZE + stakeHashProof(32) + stakeModifier2(32)+ entropyBit(8) + generatedStakeModifier(1) 
+    public static final int COMPACT_SERIALIZED_BLK_SIZE = COMPACT_SERIALIZED_SIZE + 32 + 32 + 8 + 32 + 8 + 1;
 
     private Block header;
     private BigInteger chainWork;
     private int height;
 
-    public StoredBlock(Block header, BigInteger chainWork, int height) {
+    public StoredBlockbck(Block header, BigInteger chainWork, int height) {
         this.header = header;
         this.chainWork = chainWork;
         this.height = height;
@@ -79,7 +78,7 @@ public class StoredBlock implements Serializable {
     }
 
     /** Returns true if this objects chainWork is higher than the others. */
-    public boolean moreWorkThan(StoredBlock other) {
+    public boolean moreWorkThan(StoredBlockbck other) {
         return chainWork.compareTo(other.chainWork) > 0;
     }
 
@@ -87,32 +86,24 @@ public class StoredBlock implements Serializable {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        StoredBlock other = (StoredBlock) o;
-        return header.equals(other.header) &&
-               chainWork.equals(other.chainWork) &&
-               height == other.height;
+        StoredBlockbck other = (StoredBlockbck) o;
+        return header.equals(other.header) && chainWork.equals(other.chainWork) && height == other.height;
     }
 
     @Override
     public int hashCode() {
-        // A better hashCode is possible, but this works for now.
-        return header.hashCode() ^ chainWork.hashCode() ^ height;
+        return Objects.hashCode(header, chainWork, height);
     }
 
     /**
      * Creates a new StoredBlock, calculating the additional fields by adding to the values in this block.
      */
-    public StoredBlock build(Block block) throws VerificationException {
+    public StoredBlockbck build(Block block) throws VerificationException {
         // Stored blocks track total work done in this chain, because the canonical chain is the one that represents
         // the largest amount of work done not the tallest.
         BigInteger chainWork = this.chainWork.add(block.getWork());
         int height = this.height + 1;
-        return new StoredBlock(block, chainWork, height);
-    }
-    
-    public StoredBlock build(Block block, boolean isStake) {
-    	StoredBlock storedBlock = build(block);
-    	return storedBlock;
+        return new StoredBlockbck(block, chainWork, height);
     }
 
     /**
@@ -120,9 +111,14 @@ public class StoredBlock implements Serializable {
      * <tt>store.get(this.getHeader().getPrevBlockHash())</tt>.
      *
      * @return the previous block in the chain or null if it was not found in the store.
-     */
-    public StoredBlock getPrev(BlockStore store) throws BlockStoreException {
+    
+    public StoredBlockbck getPrev(BlockStore store) throws BlockStoreException {
         return store.get(getHeader().getPrevBlockHash());
+    } */
+    
+    public StoredBlockbck build(Block block, boolean isStake) {
+    	StoredBlockbck storedBlock = build(block);
+    	return storedBlock;
     }
     
     /** Serializes the stored block to a custom packed format. Used by {@link CheckpointManager}. */
@@ -139,8 +135,13 @@ public class StoredBlock implements Serializable {
         // avoiding serialization round-trips.
         byte[] bytes = getHeader().unsafeBitcoinSerialize();
         buffer.put(bytes, 0, Block.HEADER_SIZE);  // Trim the trailing 00 byte (zero transactions).
+        byte[] hashBytes = Sha256Hash.ZERO_HASH.getBytes();
+        if(getHeader().getNextBlockHash()!=null)
+        	hashBytes = getHeader().getNextBlockHash().getBytes();
+        buffer.put(hashBytes);
         byte[] hashProofBytes = getHeader().getStakeHashProof().getBytes();
         buffer.put(hashProofBytes);
+        buffer.putLong(getHeader().getStakeModifier());
         byte[] hashStake = getHeader().getStakeModifier2().getBytes();
         buffer.put(hashStake);
         buffer.putLong(getHeader().getEntropyBit());
@@ -148,7 +149,7 @@ public class StoredBlock implements Serializable {
         	buffer.put((byte) 1);
         else
         	buffer.put((byte) 0);
-    }
+}
 
     /** Serializes the stored block to a custom packed format. Used by {@link CheckpointManager}. */
     public void serializeCompact(ByteBuffer buffer) {
@@ -167,29 +168,34 @@ public class StoredBlock implements Serializable {
     }
 
     /** De-serializes the stored block from a custom packed format. Used by {@link CheckpointManager}. */
-    public static StoredBlock deserializeCompact(NetworkParameters params, ByteBuffer buffer) throws ProtocolException {
-        byte[] chainWorkBytes = new byte[StoredBlock.CHAIN_WORK_BYTES];
+    public static StoredBlockbck deserializeCompact(NetworkParameters params, ByteBuffer buffer) throws ProtocolException {
+        byte[] chainWorkBytes = new byte[StoredBlockbck.CHAIN_WORK_BYTES];
         buffer.get(chainWorkBytes);
         BigInteger chainWork = new BigInteger(1, chainWorkBytes);
         int height = buffer.getInt();  // +4 bytes
         byte[] header = new byte[Block.HEADER_SIZE + 1];    // Extra byte for the 00 transactions length.
         buffer.get(header, 0, Block.HEADER_SIZE);
-        return new StoredBlock(new Block(params, header), chainWork, height);
+        return new StoredBlockbck(params.getDefaultSerializer().makeBlock(header), chainWork, height);
     }
     
     /** De-serializes the stored block from a custom packed format. Used by {@link CheckpointManager}. */
-    public static StoredBlock deserializeBlkCompact(NetworkParameters params, ByteBuffer buffer) throws ProtocolException {
+    public static StoredBlockbck deserializeBlkCompact(NetworkParameters params, ByteBuffer buffer) throws ProtocolException {
     	
-        byte[] chainWorkBytes = new byte[StoredBlock.CHAIN_WORK_BYTES];
+        byte[] chainWorkBytes = new byte[StoredBlockbck.CHAIN_WORK_BYTES];
         buffer.get(chainWorkBytes);
         BigInteger chainWork = new BigInteger(1, chainWorkBytes);
         int height = buffer.getInt();  // +4 bytes
         byte[] header = new byte[Block.HEADER_SIZE + 1];    // Extra byte for the 00 transactions length.
         buffer.get(header, 0, Block.HEADER_SIZE);
-        StoredBlock storedBlock = new StoredBlock(new Block(params, header), chainWork, height);
+        StoredBlockbck storedBlock = new StoredBlockbck(new Block(params, header), chainWork, height);
+        byte[] rawNextBlockHash = new byte[32];
+        buffer.get(rawNextBlockHash);
+        storedBlock.getHeader().setNextBlockHash(Sha256Hash.wrap(rawNextBlockHash));
         byte[] rawStakeHash = new byte[32];
         buffer.get(rawStakeHash);
         storedBlock.getHeader().setStakeHashProof(Sha256Hash.wrap(rawStakeHash));
+        long stakeModifier = buffer.getLong();
+        storedBlock.getHeader().setStakeModifier(stakeModifier);
         byte[] rawStakeMod2 = new byte[32];
         buffer.get(rawStakeMod2);
         storedBlock.getHeader().setStakeModifier2(Sha256Hash.wrap(rawStakeMod2));
@@ -200,11 +206,11 @@ public class StoredBlock implements Serializable {
         else 
         	storedBlock.getHeader().setGeneratedStakeModifier(false);
         return storedBlock;
-    }
+}
 
     @Override
     public String toString() {
-        return String.format("Block %s at height %d: %s",
+        return String.format(Locale.US, "Block %s at height %d: %s",
                 getHeader().getHashAsString(), getHeight(), getHeader().toString());
     }
 }
